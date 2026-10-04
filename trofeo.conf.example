@@ -159,6 +159,7 @@ language = en
 #   gradient = the cover's dominant color fading to near-black (default, Spotify-like)
 #   blur     = the cover itself, blurred      color = one flat color from the cover
 #   solid    = one flat color of your choice  none  = keep what is behind (your background)
+#   effect   = the animated background effect (see the section below)
 # music_bg = gradient
 # music_bg_brightness = 40   # 0-100: how strong the cover color is (gradient/blur/color)
 # music_bg_blur = 70         # 0-100: blur amount (blur only)
@@ -172,6 +173,25 @@ language = en
 #   cover = taken from the album cover (default)     main = same as the main screen
 #   #1DB954 = one fixed color    #FF0080, #00FFFF = gradient    fire, ocean = presets (rotate)
 # music_spectrum_color = cover
+
+# --- Animated background effect ----------------------------------------------------
+# A soft animated background instead of a picture: colors that blend and drift.
+# Very light on the CPU (the picture is calculated on a coarse grid and stretched).
+# It replaces "background" while it is on, and works with margins and panel_opacity.
+# background_effect = plasma   # plasma | aurora | lava | waves | none
+# Colors: pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice |
+# mono | rainbow | custom. Several (comma-separated) or "all" rotate with a cross-fade.
+# effect_palette = neon
+# Your own colors (2+); used directly when effect_palette is not set, or add "custom"
+# to the list above:
+# effect_colors = #FF0080, #00FFFF, #FFD000
+# effect_palette_interval = 60  # 5-3600 s between palettes when several are listed
+# effect_speed = 30             # 0 (frozen) - 100 (fast)
+# effect_scale = 100            # 25-400 %: size of the shapes
+# effect_brightness = 40        # 0-100: lower = easier to read the text on top
+#                               # (pastel / candy look best at 70-85 with a dark text_color)
+# effect_fps = 8                # 1-30 frames per second while it moves (lower = lighter)
+# On the music screen use: music_bg = effect (brightness = music_bg_brightness).
 
 # --- Pixel game --------------------------------------------------------------------
 # A little self-playing pixel-art platformer under the clock (default screen and

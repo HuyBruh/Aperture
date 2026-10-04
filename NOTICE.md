@@ -50,6 +50,11 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
 - Added a **pixel-art mini game** under the clock: a self-playing platformer (original
   knight and cat heroes) whose speed, jumps, coins, fireworks, sky and weather react to CPU
   load, music, network/disk activity, the clock and the weather module.
+- Added **animated background effects** (plasma, aurora, lava lamp, waves) as an
+  alternative to an image: colors that blend and drift slowly, with 12 color presets
+  (pastel to fluorescent) or your own, adjustable speed, size and brightness, and a
+  very low CPU cost (a coarse field stretched through a color table); also available
+  behind the music screen.
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
   (lossless PNG), a **console-hide** option, and an adaptive idle/active FPS
   system.

@@ -117,13 +117,89 @@ language = it
 Video backgrounds need ffmpeg; `background_dim` darkens the image so text
 stays readable over it. With an animated background (GIF or video) the idle
 FPS is automatically raised to the active FPS, so the animation stays smooth
-even while nothing else is happening.
+even while nothing else is happening. For a soft moving background that needs
+no file at all see [Animated background effect](#animated-background-effect-plasma-aurora-lava-waves).
 
 ```ini
 background = C:\Pictures\space.mp4
 background_dim = 55
 background_fit = cover
 ffmpeg = C:\ffmpeg\bin\ffmpeg.exe
+```
+
+## Animated background effect (plasma, aurora, lava, waves)
+
+Instead of a picture, the background can be a slow, soft effect whose colors
+blend into each other and drift: a plasma, curtains of aurora, a lava lamp or
+silk-like waves. It is drawn behind everything (clock, status lines, spectrum,
+the pixel game, layouts), costs almost no CPU, and you choose the colors, the
+speed and the brightness.
+
+| Key | CLI | Values | Default |
+|---|---|---|---|
+| `background_effect` | `--background-effect` | `plasma` / `aurora` / `lava` / `waves` / `none` | `none` |
+| `effect_palette` | `--effect-palette` | `pastel` / `fluo` / `neon` / `candy` / `sunset` / `ocean` / `aurora` / `fire` / `forest` / `ice` / `mono` / `rainbow` / `custom`; several (comma-separated) or `all` rotate | `neon` |
+| `effect_colors` | `--effect-colors` | 2 or more colors, e.g. `#FF0080, #00FFFF` | — |
+| `effect_palette_interval` | `--effect-palette-interval` | `5`-`3600` seconds (rotation period) | `60` |
+| `effect_speed` | `--effect-speed` | `0` (frozen) - `100` (fast) | `30` |
+| `effect_scale` | `--effect-scale` | `25`-`400` % (size of the features; bigger = larger, calmer shapes) | `100` |
+| `effect_brightness` | `--effect-brightness` | `0`-`100` | `40` |
+| `effect_fps` | `--effect-fps` | `1`-`30` | `8` |
+
+- **Styles** (`background_effect`): `plasma` is the classic demoscene look (a
+  sum of waves and a moving ring); `aurora` is undulating bands of light; `lava`
+  is soft blobs that drift and merge; `waves` is smooth diagonal ripples (silk).
+- **Colors** (`effect_palette`): `pastel` soft light tones, `fluo` highlighter
+  colors (hot pink, yellow, green, cyan, violet), `neon` magenta / violet / blue /
+  cyan, `candy` sweet pinks and mints, `sunset`, `ocean`, `aurora` (greens and
+  violet), `fire`, `forest`, `ice`, `mono` (silvery grey) and `rainbow` (the whole
+  hue circle). Several names rotate with a smooth cross-fade every
+  `effect_palette_interval` seconds, and `all` goes through every preset.
+- **Your own colors**: `effect_colors = #FF0080, #00FFFF, #FFD000` (two or more,
+  `#RRGGBB` or color names) makes a looping palette of its own. On its own it is
+  used directly; write `custom` in the `effect_palette` list to rotate it with the
+  presets (`effect_palette = pastel, custom`).
+- **Speed**: `30` is a slow drift (a full change takes about a minute); `0` freezes
+  the picture; `100` is lively. A calm speed looks smooth even at a few frames per second.
+- **Brightness** (`effect_brightness`, 0-100): how strong the colors are. Lower it
+  to keep text readable — dark palettes (`ocean`, `aurora`, `fire`, `sunset`,
+  `neon`) read well at 35-55. Light palettes such as `pastel` and `candy` look
+  best brighter (70-85) with a dark text color instead:
+
+  ```ini
+  background_effect = plasma
+  effect_palette = pastel
+  effect_brightness = 80
+  clock_color = #28243C
+  text_color = #28243C
+  ```
+- It replaces `background` (an image or video you also set is not used while an
+  effect is on); `background_dim` does not apply, `effect_brightness` does the
+  same job. It works with `margin`, `panel_opacity` and `text_backdrop` (panels
+  and backdrops blend over it) and in portrait orientation.
+- **Music screen**: `music_bg = effect` paints the same effect behind the album
+  cover (style, palette, speed and size from the keys above, plasma if no style
+  is set), with `music_bg_brightness` as its brightness. The cover and the text stay
+  on top. `music_bg = none` instead lets the global effect show through.
+
+**CPU cost.** The picture is only calculated at about 6 000 points (one every 12
+pixels) and stretched to the whole panel through a color table, so building a
+frame takes around a millisecond. The rest of the work — JPEG-encoding and sending
+the frame — is the same as for any other frame; it is the **number of frames** that
+matters, which is why the effect has its own `effect_fps` (8 by default,
+`1`-`30`). While an effect is moving, the idle screen runs at that rate instead of
+2 fps; with the pixel game on it runs at the active FPS anyway. To be as light as
+possible, lower `effect_fps` (4-5 is still smooth at the default speed) or set
+`effect_speed = 0`, which freezes the picture and keeps the idle screen at its
+normal 2 fps. A fast `effect_speed` needs a higher `effect_fps` to look smooth.
+
+```ini
+background_effect = aurora
+effect_palette = ocean, aurora, neon     # rotates, cross-fading
+effect_palette_interval = 90
+effect_speed = 25
+effect_brightness = 45
+effect_fps = 6
 ```
 
 ## What to show — `show` / `hide`
@@ -243,7 +319,7 @@ spectrum_rainbow_speed = 10
 | Key | CLI | Values | Default |
 |---|---|---|---|
 | `music_screen` | `--music-screen` | `true`/`false` | `false` |
-| `music_bg` | `--music-bg` | `gradient` / `blur` / `color` / `solid` / `none` | `gradient` |
+| `music_bg` | `--music-bg` | `gradient` / `blur` / `color` / `solid` / `none` / `effect` | `gradient` |
 | `music_bg_brightness` | `--music-bg-brightness` | `0`-`100` | `40` |
 | `music_bg_blur` | `--music-bg-blur` | `0`-`100` (only `blur`) | `70` |
 | `music_bg_fit` | `--music-bg-fit` | `center` / `stretch` (only `blur`) | `center` |
@@ -285,12 +361,16 @@ spectrum at the bottom. When the music stops the normal screen/layout comes back
   - `color` — one flat color, the cover's dominant one.
   - `solid` — one flat color of your choice, `music_bg_color` (`#RRGGBB`, `R,G,B`
     or a name), the same for every track.
-  - `none` — keep whatever is behind (solid color or your `background` image);
+  - `none` — keep whatever is behind (solid color, your `background` image or the
+    [background effect](#animated-background-effect-plasma-aurora-lava-waves));
     the cover and text are drawn on top.
+  - `effect` — the animated background effect (plasma, aurora, lava or waves, with
+    the style, palette, speed and size you set in its section; plasma if you set none),
+    drawn just for this screen. `music_bg_brightness` is its brightness.
 
   `music_bg_brightness` (0-100) is how strong the cover color is in `gradient`,
   `blur` and `color` (lower = darker, more contrast for the text; it does not
-  affect `solid`). The glow around the cover is kept in every mode except `none`.
+  affect `solid`). The glow around the cover is kept in every mode except `none` and `effect`.
   The old `music_blur = false` still works (it means `music_bg = none`) when
   `music_bg` is not set. Without a cover, `blur` falls back to the gradient.
 - **Footer** (`music_stats`): a small line of system info in the strip at the very
@@ -807,6 +887,11 @@ clock_color = #00C8FF
 brightness = 95
 background = C:\Pictures\bg.jpg
 background_dim = 45
+# ...or, instead of a picture, a soft animated effect (see "Animated background effect"):
+# background_effect = plasma
+# effect_palette = neon
+# effect_speed = 30
+# effect_brightness = 40
 
 # --- What to show ---
 show = cpu, gpu, mem, nowplaying, clock, spectrum, weather, ticker

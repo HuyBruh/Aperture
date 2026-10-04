@@ -52,6 +52,9 @@ system status (CPU/GPU/RAM/temp) stays readable while playing.
 - **Pixel game** under the clock: a self-playing pixel-art platformer (a knight
   or a cat) that reacts to CPU load, music, network/disk bursts, the hour, and
   the real weather and time of day.
+- **Animated backgrounds** instead of an image: plasma, aurora, lava lamp or
+  silk waves, with colors from pastel to fluorescent (or your own), adjustable
+  speed and brightness, at almost no CPU cost.
 - Can also drive a **DeepCool** display (sends CPU data over HID).
 - **Second monitor mode** (`trofeo_screen`): the LCD becomes a real second
   monitor.
@@ -153,13 +156,16 @@ Also settable in `trofeo.conf` (see `trofeo.conf.example`) or via CLI:
   A sample background (`img/sample_background.jpg`) is included in this repo
   if you just want to try it: `background = img/sample_background.jpg` — it's
   also what the [preset layout screenshots](#preset-layouts) below are shown over.
+- `background_effect = plasma | aurora | lava | waves`: a soft **animated
+  background** with no file needed — see [Animated background](#animated-background-plasma-aurora-lava-waves).
+  It replaces `background` while it is on.
 
 ### What to show, where, and colors
 
 - **Music screen**: `music_screen = true` turns the panel into a Spotify-style
   now-playing card while a track plays — album cover with glow, artist/title,
   progress bar, spectrum on the side, all tinted with the cover's colors. The
-  background is configurable (`music_bg = gradient | blur | color | solid | none`,
+  background is configurable (`music_bg = gradient | blur | color | solid | none | effect`,
   with brightness / blur / fit options), and a small footer with CPU / GPU / RAM
   load (`music_stats`, selectable). The spectrum color on this screen is its own
   setting (`music_spectrum_color`: cover color, a fixed color, a gradient or presets). Needs the player's cover to be exposed by the
@@ -206,6 +212,24 @@ It never shows on the preset layout panels, the music screen or the in-game
 dashboard. Because an animation needs smooth frames, the idle screen runs at
 `--active-fps` while it is visible — see [Performance](#performance). Details in the
 **[Options guide](./OPTIONS_GUIDE.md#pixel-game-mini-platformer-under-the-clock)**.
+
+### Animated background (plasma, aurora, lava, waves)
+
+![Animated background effects — styles and palettes](img/effects.png)
+
+Instead of a picture, the background can be a slow, soft effect whose colors blend
+into each other and drift: `background_effect = plasma | aurora | lava | waves`.
+Pick the colors with `effect_palette` (`pastel`, `fluo`, `neon`, `candy`, `sunset`,
+`ocean`, `aurora`, `fire`, `forest`, `ice`, `mono`, `rainbow` — several, or `all`,
+rotate with a cross-fade) or give your own with `effect_colors = #FF0080, #00FFFF`.
+`effect_speed` (0-100), `effect_scale` (25-400) and `effect_brightness` (0-100, lower
+keeps the text readable) shape the look. It is drawn behind everything, also behind
+the music screen with `music_bg = effect`.
+
+It is built to be light: the picture is only calculated on a coarse grid and
+stretched through a color table (about a millisecond per frame), and `effect_fps`
+(default 8) keeps the number of frames low — see [Performance](#performance).
+Details in the **[Options guide](./OPTIONS_GUIDE.md#animated-background-effect-plasma-aurora-lava-waves)**.
 
 ### Brightness, DeepCool, FPS
 
@@ -354,6 +378,7 @@ Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
 - `src/spectrum.rs` — spectrum styles and color palettes.
 - `src/media.rs` + `src/music_screen.rs` — now-playing info (Windows media controls / `playerctl`) and the Spotify-style music screen.
 - `src/pixel_game.rs` — the self-playing pixel-art platformer under the clock.
+- `src/effect.rs` — the animated background effects (plasma, aurora, lava, waves).
 - `src/main.rs` — main loop: audio → FFT → EQ bars → send to screen.
 
 ## Performance
@@ -376,6 +401,12 @@ one (2). Drawing the game itself costs well under a millisecond per frame; the
 extra load is JPEG-encoding and sending more frames. Set `pixel_game = false`
 to get the minimal-load behavior measured above. These figures have not been
 re-measured with the game on.
+
+An **animated background effect** works the same way: building the picture takes about a
+millisecond, and the cost that matters is the extra frames. It uses its own, low
+`effect_fps` (default 8) while it moves instead of the idle 2 fps, so it sits between the
+idle screen and the game; lower `effect_fps` or set `effect_speed = 0` (a still picture,
+idle FPS unchanged) to make it lighter still.
 
 ## Credits
 
