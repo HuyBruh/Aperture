@@ -30,6 +30,7 @@ mod music_screen;
 mod netdisk;
 mod openrgb_sync;
 mod pawnio;
+mod effect;
 mod pixel_game;
 mod spectrum;
 mod ticker;
@@ -314,6 +315,11 @@ fn print_help() {
          \x20\x20--music-spectrum-color <cover|main|COLOR|PRESET>  Music screen spectrum color (default: cover)\n\
          \x20\x20--pixel-game <true|false>  Pixel-art mini game under the clock on the default screen (default: true)\n\
          \x20\x20--pixel-game-hero <knight|cat|both>, --pixel-game-height <20-70>, --pixel-game-hud <true|false>\n\
+         \x20\x20--background-effect <plasma|aurora|lava|waves|none>  Animated background instead of an image (default: none)\n\
+         \x20\x20--effect-palette <P>    pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow | all\n\
+         \x20\x20--effect-colors <C>     Own colors: 2+ colors, e.g. #FF0080,#00FFFF (used when --effect-palette is not set)\n\
+         \x20\x20--effect-speed <0-100>, --effect-scale <25-400>, --effect-brightness <0-100>, --effect-fps <1-30>\n\
+         \x20\x20                          (defaults: 30, 100, 40, 8); --effect-palette-interval <SEC> rotates several palettes\n\
          \x20\x20--music-stats <list>      Music screen footer: cpu, gpu, ram, net, disk, time, uptime, all or none (default: cpu,gpu,ram)\n\
          \x20\x20--music-bg <gradient|blur|color|solid|none>  Music screen background (default: gradient)\n\
          \x20\x20--music-bg-brightness / --music-bg-blur <0-100>  Background brightness (40) / blur amount (70)\n\
@@ -682,6 +688,8 @@ const OVERRIDE_KEYS: &[&str] = &[
     "music_screen", "music_blur", "music_progress", "music_bg", "music_bg_brightness",
     "music_bg_blur", "music_bg_fit", "music_bg_color", "music_stats", "music_spectrum_color",
     "pixel_game", "pixel_game_hero", "pixel_game_height", "pixel_game_hud",
+    "background_effect", "effect_palette", "effect_colors", "effect_palette_interval",
+    "effect_speed", "effect_scale", "effect_brightness", "effect_fps",
 ];
 
 /// Network (`net_unit`) and RAM (`mem_unit`) units.
@@ -979,7 +987,88 @@ fn parse_ui_options(file: &ConfigFile) -> anyhow::Result<UiOptions> {
         pixel_game_hud: file.get_bool("pixel_game_hud").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(true),
         music_stats_set: file.get("music_stats").is_some(),
         music_progress: file.get_bool("music_progress").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(true),
+        effect: parse_effect(file)?,
     })
+}
+
+/// `background_effect` + `effect_*` keys -> the animated background settings.
+fn parse_effect(file: &ConfigFile) -> anyhow::Result<effect::Settings> {
+    let mut e = effect::Settings::default();
+    if let Some(v) = file.get("background_effect") {
+        e.style = match v.trim().to_ascii_lowercase().as_str() {
+            "none" | "off" | "no" | "false" | "nessuno" | "" => None,
+            other => Some(
+                effect::Style::parse(other)
+                    .ok_or_else(|| anyhow::anyhow!("background_effect: '{v}' not valid ({} | none)", effect::Style::NAMES))?,
+            ),
+        };
+    }
+    // Own colors (`effect_colors`) form the `custom` palette, and are used on their own
+    // when `effect_palette` is not set.
+    let custom = match file.get("effect_colors") {
+        None => None,
+        Some(list) => {
+            let mut stops = Vec::new();
+            for raw in list.split(',') {
+                let raw = raw.trim();
+                if raw.is_empty() {
+                    continue;
+                }
+                match parse_color(raw).map_err(|e| anyhow::anyhow!("effect_colors: {e}"))? {
+                    ColorMode::Custom(r, g, b) => stops.push((r, g, b)),
+                    ColorMode::Default => anyhow::bail!("effect_colors: 'default' is not a color"),
+                }
+            }
+            if stops.len() < 2 {
+                anyhow::bail!("effect_colors: needs at least 2 colors, e.g. #FF0080, #00FFFF");
+            }
+            Some(effect::Palette::custom(stops))
+        }
+    };
+    match file.get("effect_palette") {
+        None => {
+            if let Some(c) = custom {
+                e.palettes = vec![c];
+            }
+        }
+        Some(list) => {
+            let mut out: Vec<effect::Palette> = Vec::new();
+            for raw in list.split(',') {
+                let name = raw.trim();
+                if name.is_empty() {
+                    continue;
+                }
+                if name.eq_ignore_ascii_case("all") || name.eq_ignore_ascii_case("rotate") {
+                    out.extend(effect::Palette::presets());
+                } else if name.eq_ignore_ascii_case("custom") {
+                    out.push(custom.clone().ok_or_else(|| {
+                        anyhow::anyhow!("effect_palette: 'custom' needs effect_colors = #RRGGBB, #RRGGBB")
+                    })?);
+                } else {
+                    out.push(effect::Palette::parse(name).ok_or_else(|| {
+                        anyhow::anyhow!("effect_palette: '{name}' not valid ({} | custom | all)", effect::Palette::NAMES)
+                    })?);
+                }
+            }
+            out.dedup();
+            if !out.is_empty() {
+                e.palettes = out;
+            }
+        }
+    }
+    let ranged = |key: &str, default: u32, lo: u32, hi: u32| -> anyhow::Result<u32> {
+        match file.get_u32(key).map_err(|e| anyhow::anyhow!(e))? {
+            None => Ok(default),
+            Some(v) if (lo..=hi).contains(&v) => Ok(v),
+            Some(v) => anyhow::bail!("{key}: must be between {lo} and {hi} (got {v})"),
+        }
+    };
+    e.speed = ranged("effect_speed", e.speed, 0, 100)?;
+    e.scale = ranged("effect_scale", e.scale, 25, 400)?;
+    e.brightness = ranged("effect_brightness", e.brightness, 0, 100)?;
+    e.fps = ranged("effect_fps", e.fps, 1, 30)?;
+    e.palette_interval = ranged("effect_palette_interval", e.palette_interval, 5, 3600)?;
+    Ok(e)
 }
 
 /// `music_spectrum_color = cover | main | #RRGGBB | #RRGGBB, #RRGGBB | fire, ocean | all`:
@@ -1243,7 +1332,12 @@ fn build_display(config: &Config) -> anyhow::Result<Display> {
         .inner(resolution.width, resolution.height)
         .map_err(|e| anyhow::anyhow!(e))?;
     let ui_resolution = trofeo_lcd::Resolution::new(ui_w, ui_h);
-    let background: Option<Background> = match &config.background {
+    // An animated effect (plasma, aurora, ...) takes the place of an image/video background.
+    let effect_on = config.ui.effect.style.is_some();
+    if effect_on && config.background.is_some() {
+        println!("Background effect is on: the background image/video is not used.");
+    }
+    let background: Option<Background> = match config.background.as_ref().filter(|_| !effect_on) {
         Some(path) => match Background::load(
             path,
             resolution,
@@ -1266,10 +1360,13 @@ fn build_display(config: &Config) -> anyhow::Result<Display> {
     // With an animated background, the idle fps would look choppy: use the active fps instead.
     let idle_fps_effective = if background.as_ref().is_some_and(|b| b.is_animated()) {
         config.idle_fps.max(config.active_fps)
+    } else if effect_on && config.ui.effect.is_moving() {
+        // The effect drifts slowly: its own (low) frame rate is enough.
+        config.idle_fps.max(config.ui.effect.fps as f32)
     } else {
         config.idle_fps
     };
-    let composite = background.is_some() || !config.margins.is_zero() || config.ui.panel_opacity < 100;
+    let composite = background.is_some() || effect_on || !config.margins.is_zero() || config.ui.panel_opacity < 100;
     let fb = Framebuffer::new(resolution);
     let ui = Framebuffer::new(if composite { ui_resolution } else { trofeo_lcd::Resolution::new(1, 1) });
     Ok(Display { resolution, background, idle_fps_effective, composite, fb, ui })
@@ -1478,6 +1575,7 @@ fn main() -> anyhow::Result<()> {
     let (now_playing, track_shared) = media::spawn_track_watcher()?;
     let mut music = music_screen::MusicScreen::new();
     let mut game = pixel_game::PixelGame::new();
+    let mut bg_effect = effect::Effect::new();
     let mut now_playing_marquee = Marquee::new();
 
     let mut latest_gpu_percent: Option<f32> = None;
@@ -1758,9 +1856,10 @@ fn main() -> anyhow::Result<()> {
         // Base: a background (image/gif/video) or a solid color; the interface goes
         // on the `ui` buffer (transparent) when there are margins or a background.
         if composite {
-            match background.as_mut() {
-                Some(bg) => bg.render_into(&mut fb),
-                None => fb.clear(0x08, 0x08, 0x10),
+            match (background.as_mut(), config.ui.effect.style) {
+                (Some(bg), _) => bg.render_into(&mut fb),
+                (None, Some(style)) => bg_effect.render(&mut fb, &config.ui.effect, style, config.ui.effect.brightness),
+                (None, None) => fb.clear(0x08, 0x08, 0x10),
             }
             ui.clear(UI_KEY.0, UI_KEY.1, UI_KEY.2);
         } else {
@@ -2064,6 +2163,9 @@ struct UiOptions {
     pixel_game_hud: bool,
     /// Music screen: show the progress bar and times (when the player reports them).
     music_progress: bool,
+    /// Animated background effect (plasma, aurora, lava, waves) in place of an image,
+    /// and on the music screen when `music_bg = effect` (see `effect.rs`).
+    effect: effect::Settings,
 }
 
 impl Default for UiOptions {
@@ -2113,6 +2215,7 @@ impl Default for UiOptions {
             pixel_game_height: 46,
             pixel_game_hud: true,
             music_progress: true,
+            effect: effect::Settings::default(),
         }
     }
 }
@@ -3531,6 +3634,84 @@ mod layout_tests {
         assert!(parse("music_bg_blur = -1\n").is_err());
         assert!(parse("music_bg_fit = zoom\n").is_err());
         assert!(parse("music_bg_color = notacolor\n").is_err());
+    }
+
+    #[test]
+    fn effect_options_parse() {
+        use effect::{Palette, Style};
+        let parse = |t: &str| parse_ui_options(&ConfigFile::parse(t).unwrap());
+        // Off by default; the defaults are slow, dim and light on the CPU.
+        let d = parse("").unwrap().effect;
+        assert_eq!(d.style, None);
+        assert_eq!((d.speed, d.scale, d.brightness, d.fps), (30, 100, 40, 8));
+        assert_eq!(d.palettes.len(), 1);
+        let o = parse("background_effect = lava\neffect_palette = pastel\neffect_speed = 12\neffect_scale = 250\neffect_brightness = 55\neffect_fps = 5\n").unwrap().effect;
+        assert_eq!(o.style, Some(Style::Lava));
+        assert_eq!(o.palettes, vec![Palette::parse("pastel").unwrap()]);
+        assert_eq!((o.speed, o.scale, o.brightness, o.fps), (12, 250, 55, 5));
+        assert_eq!(parse("background_effect = SILK\n").unwrap().effect.style, Some(Style::Waves));
+        assert_eq!(parse("background_effect = none\n").unwrap().effect.style, None);
+        // Several palettes rotate; `all` is every preset.
+        let r = parse("effect_palette = fluo, ocean\neffect_palette_interval = 30\n").unwrap().effect;
+        assert_eq!((r.palettes.len(), r.palette_interval), (2, 30));
+        assert_eq!(parse("effect_palette = all\n").unwrap().effect.palettes, Palette::presets());
+        // Own colors: on their own they are the palette; `custom` places them in a list.
+        let c = parse("effect_colors = #FF0080, #00FFC8\n").unwrap().effect;
+        assert_eq!(c.palettes, vec![Palette::custom(vec![(255, 0, 128), (0, 255, 200)])]);
+        let m = parse("effect_colors = #FF0080, #00FFFF\neffect_palette = pastel, custom\n").unwrap().effect;
+        assert_eq!(m.palettes.len(), 2);
+        // Mistakes are reported, not ignored.
+        assert!(parse("background_effect = sparkles\n").is_err());
+        assert!(parse("effect_palette = beige\n").is_err());
+        assert!(parse("effect_palette = custom\n").is_err());
+        assert!(parse("effect_colors = #FF0080\n").is_err());
+        assert!(parse("effect_colors = #FF0080, nope\n").is_err());
+        assert!(parse("effect_speed = 101\n").is_err());
+        assert!(parse("effect_scale = 10\n").is_err());
+        assert!(parse("effect_scale = 401\n").is_err());
+        assert!(parse("effect_brightness = 101\n").is_err());
+        assert!(parse("effect_fps = 0\n").is_err());
+        assert!(parse("effect_fps = 31\n").is_err());
+        assert!(parse("effect_palette_interval = 4\n").is_err());
+        assert!(parse("effect_palette_interval = 3601\n").is_err());
+        // They can be set from the command line too.
+        for k in ["background_effect", "effect_palette", "effect_colors", "effect_palette_interval", "effect_speed", "effect_scale", "effect_brightness", "effect_fps"] {
+            assert!(is_override_key(k), "{k}");
+        }
+    }
+
+    /// The idle clock, the pixel game and the status lines drawn over the animated
+    /// background through the same compositing the main loop uses.
+    #[test]
+    fn effect_background_sits_under_the_interface() {
+        let canvas = Orientation::Landscape.canvas();
+        let mut o = UiOptions { show: Show::all(true), ..UiOptions::default() };
+        o.effect.style = Some(effect::Style::Plasma);
+        TEST_OPTS.with(|t| *t.borrow_mut() = Some(o.clone()));
+        TEST_GAME_STRIP.with(|g| g.set(true));
+        let mut fb = Framebuffer::new(canvas);
+        let mut ui = Framebuffer::new(canvas);
+        let mut fx = effect::Effect::new();
+        fx.render_at(&mut fb, &o.effect, effect::Style::Plasma, o.effect.brightness, 3.0);
+        let backdrop = fb.as_bytes().to_vec();
+        ui.clear(UI_KEY.0, UI_KEY.1, UI_KEY.2);
+        draw_idle_clock(&mut ui, ColorMode::Default);
+        fb.blit_ui(&ui, 0, 0, UI_KEY, None);
+        TEST_GAME_STRIP.with(|g| g.set(false));
+        TEST_OPTS.with(|t| *t.borrow_mut() = None);
+        let changed = fb.as_bytes().chunks_exact(3).zip(backdrop.chunks_exact(3)).filter(|(a, b)| a != b).count();
+        let total = (canvas.width * canvas.height) as usize;
+        // The clock covers a small part of the screen; the rest is the untouched effect.
+        assert!(changed > 500, "the clock was not drawn ({changed})");
+        assert!(changed < total / 4, "the clock hid the background ({changed} of {total})");
+        // And no pixel is left at the transparent key.
+        assert!(fb.as_bytes().chunks_exact(3).all(|p| p != [UI_KEY.0, UI_KEY.1, UI_KEY.2]));
+        if let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") {
+            let _ = std::fs::write(
+                format!("{dir}/effect_clock.ppm"),
+                [format!("P6\n{} {}\n255\n", fb.width(), fb.height()).into_bytes(), fb.as_bytes().to_vec()].concat(),
+            );
+        }
     }
 
     #[test]

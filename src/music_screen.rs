@@ -48,10 +48,13 @@ pub enum BgMode {
     Solid,
     /// Nothing: whatever is already on the canvas (solid color / `background`).
     None,
+    /// The animated background effect (`background_effect` style, palette, speed...;
+    /// plasma when none is set), at the brightness of `Bg::brightness`.
+    Effect,
 }
 
 impl BgMode {
-    pub const NAMES: &'static str = "gradient | blur | color | solid | none";
+    pub const NAMES: &'static str = "gradient | blur | color | solid | none | effect";
 
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s.trim().to_ascii_lowercase().as_str() {
@@ -60,6 +63,7 @@ impl BgMode {
             "color" | "colour" | "dominant" | "colore" => BgMode::Color,
             "solid" | "fixed" | "fisso" => BgMode::Solid,
             "none" | "off" | "no" | "false" | "nessuno" => BgMode::None,
+            "effect" | "animated" | "plasma" | "effetto" | "animato" => BgMode::Effect,
             _ => return None,
         })
     }
@@ -460,7 +464,8 @@ fn build_cache(w: u32, h: u32, cover: &Option<Arc<CoverArt>>, bg: Bg) -> Cache {
     };
     let radius = cs as f32 / 16.0;
 
-    if bg.mode == BgMode::None {
+    // No backdrop: just the cover with transparent corners (the effect is painted live).
+    if bg.mode == BgMode::None || bg.mode == BgMode::Effect {
         let mut k = new_fb(cs, cs);
         for y in 0..cs {
             for x in 0..cs {
@@ -568,6 +573,8 @@ pub struct MusicScreen {
     /// What the footer shows; set by the main loop before each `draw`.
     pub stats: Stats,
     cache: Option<Cache>,
+    /// Renderer of `BgMode::Effect` (it keeps its own clock).
+    effect: crate::effect::Effect,
     title_m: Marquee,
     artist_m: Marquee,
     album_m: Marquee,
@@ -578,7 +585,7 @@ const PROGRESS_H: u32 = 8 + 10 + 14;
 
 impl MusicScreen {
     pub fn new() -> Self {
-        Self { stats: Stats::default(), cache: None, title_m: Marquee::new(), artist_m: Marquee::new(), album_m: Marquee::new() }
+        Self { stats: Stats::default(), cache: None, effect: crate::effect::Effect::new(), title_m: Marquee::new(), artist_m: Marquee::new(), album_m: Marquee::new() }
     }
 
     /// The accent color currently in use (for tests/tools).
@@ -613,7 +620,12 @@ impl MusicScreen {
         let accent = cache.accent;
         match (&cache.backdrop, &cache.keyed_cover) {
             (Some(bd), _) => fb.copy_from(bd),
-            (None, Some(k)) => fb.blit_keyed(k, g.cover.x, g.cover.y, KEY),
+            (None, Some(k)) => {
+                if o.music_bg.mode == BgMode::Effect {
+                    self.effect.render(fb, &o.effect, o.effect.style_or_default(), o.music_bg.brightness);
+                }
+                fb.blit_keyed(k, g.cover.x, g.cover.y, KEY)
+            }
             _ => {}
         }
 
@@ -1049,6 +1061,45 @@ mod tests {
 
     fn luma(c: Rgb) -> u32 {
         c.0 as u32 + c.1 as u32 + c.2 as u32
+    }
+
+    #[test]
+    fn effect_background_is_live_and_keeps_the_cover_on_top() {
+        let mut o = bg_with(BgMode::Effect);
+        o.effect.speed = 100;
+        let cover = Some(solid_cover((200, 30, 30), 32));
+        let g = geometry(1920, 462);
+        let mut m = MusicScreen::new();
+        let t = track("S", "A", cover.clone(), None);
+        let mut a = new_fb(1920, 462);
+        m.draw(&mut a, &t, &vec![0.0; 48], &vec![0.0; 48], &o);
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let mut b = new_fb(1920, 462);
+        m.draw(&mut b, &t, &vec![0.0; 48], &vec![0.0; 48], &o);
+        // The picture behind moved between two frames, with no cache rebuild...
+        assert!(m.cache.as_ref().unwrap().backdrop.is_none());
+        let diff = a.as_bytes().iter().zip(b.as_bytes()).filter(|(x, y)| x != y).count();
+        assert!(diff > 20_000, "the effect did not move ({diff})");
+        // ...the cover stays where it was, untouched by the effect...
+        let c = (g.cover.x + g.cover.w / 2, g.cover.y + g.cover.h / 2);
+        assert_eq!(get(&a, c.0, c.1), get(&b, c.0, c.1));
+        assert!(get(&a, c.0, c.1).0 > 150, "the cover is on top");
+        // ...and the whole panel is painted (nothing left at the transparent key).
+        assert!(a.as_bytes().chunks_exact(3).all(|p| p != [KEY.0, KEY.1, KEY.2]));
+        // Brightness is the music background's own.
+        let mut dim = bg_with(BgMode::Effect);
+        dim.music_bg.brightness = 5;
+        let mut bright = bg_with(BgMode::Effect);
+        bright.music_bg.brightness = 90;
+        let avg = |f: &Framebuffer| f.as_bytes().iter().map(|&v| v as u64).sum::<u64>() / f.as_bytes().len() as u64;
+        assert!(avg(&draw_bg(&dim, cover.clone())) < avg(&draw_bg(&bright, cover)));
+    }
+
+    #[test]
+    fn effect_mode_parses() {
+        for n in ["effect", "Animated", "plasma", "effetto"] {
+            assert_eq!(BgMode::parse(n), Some(BgMode::Effect), "{n}");
+        }
     }
 
     #[test]
