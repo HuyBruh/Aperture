@@ -1355,4 +1355,23 @@ mod tests {
         let (r, g, b) = spectrum_hues(&o);
         assert!(b > 200 && r == 0 && g == 0, "fixed blue expected: {r} {g} {b}");
     }
+
+    #[test]
+    fn music_screen_fits_the_11_3_panel_in_both_orientations() {
+        for (w, h) in [(1920u32, 400u32), (400, 1920)] {
+            let g = geometry(w, h);
+            for (name, r) in [("cover", g.cover), ("text", g.text), ("spectrum", g.spectrum)] {
+                assert!(r.x + r.w <= w && r.y + r.h <= h, "{name} {r:?} outside {w}x{h}");
+            }
+            let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(w, h));
+            let mut m = MusicScreen::new();
+            m.draw(&mut fb, &track("Song", "Band", Some(solid_cover((200, 40, 40), 64)), Some(timeline(30, 200))), &bars(), &bars(), &opts());
+            if let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") {
+                std::fs::write(
+                    format!("{dir}/music_{w}x{h}.ppm"),
+                    [format!("P6\n{} {}\n255\n", w, h).into_bytes(), fb.as_bytes().to_vec()].concat(),
+                ).unwrap();
+            }
+        }
+    }
 }

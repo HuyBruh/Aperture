@@ -190,6 +190,10 @@ struct Config {
     /// `landscape` (default) or `portrait` (screen mounted upright) —
     /// from `--orientation` or `orientation = ...` in trofeo.conf.
     orientation: Orientation,
+    /// Size of the panel's picture (landscape): `panel` / `panel_size`.
+    panel: trofeo_lcd::Resolution,
+    /// Neither `panel` nor `panel_size` set: the model recognised at the handshake decides.
+    panel_auto: bool,
     /// Extra 180° rotation (`--flip` / `flip = true`), if the result comes out upside down.
     flip: bool,
     /// Margins (px) to keep the interface away from the screen edges.
@@ -266,6 +270,8 @@ fn print_help() {
          \x20\x20--deepcool-update-ms <N>   Interval for sending data to the DeepCool display, ms\n\
          \x20\x20                          (100-2000; default: {DEFAULT_DEEPCOOL_UPDATE_MS})\n\
          \x20\x20--orientation <O>       'landscape' (default) or 'portrait' (screen mounted upright)\n\
+         \x20\x20--panel <MODEL>         trofeo-9.16 (default, 1920x462) or trofeo-11.3 (1920x400)\n\
+         \x20\x20--panel-size <WxH>      Picture size in pixels for any other panel (e.g. 1920x440)\n\
          \x20\x20--flip                   Extra 180° rotation (if the display comes out upside down)\n\
          \x20\x20--margin <PX>            Keep the interface away from the edges (all sides);\n\
          \x20\x20--margin-top/-bottom/-left/-right <PX>  margin for a single side\n\
@@ -600,6 +606,8 @@ fn parse_args() -> anyhow::Result<Config> {
         Some(o) => o,
         None => file.orientation().map_err(|e| anyhow::anyhow!(e))?.unwrap_or_default(),
     };
+    let panel = file.panel_resolution().map_err(|e| anyhow::anyhow!(e))?;
+    let panel_auto = file.panel_is_auto();
     let flip = match flip_cli {
         Some(f) => f,
         None => file.get_bool("flip").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(false),
@@ -656,6 +664,8 @@ fn parse_args() -> anyhow::Result<Config> {
         deepcool_update_ms,
         screenshot_key,
         orientation,
+        panel,
+        panel_auto,
         flip,
         margins,
         language,
@@ -690,6 +700,7 @@ const OVERRIDE_KEYS: &[&str] = &[
     "pixel_game", "pixel_game_hero", "pixel_game_height", "pixel_game_hud",
     "background_effect", "effect_palette", "effect_colors", "effect_palette_interval",
     "effect_speed", "effect_scale", "effect_brightness", "effect_fps",
+    "panel", "panel_size",
 ];
 
 /// Network (`net_unit`) and RAM (`mem_unit`) units.
@@ -1326,7 +1337,7 @@ struct Display {
 const UI_KEY: (u8, u8, u8) = (1, 0, 2);
 
 fn build_display(config: &Config) -> anyhow::Result<Display> {
-    let resolution = config.orientation.canvas();
+    let resolution = config.orientation.canvas_for(config.panel);
     let (ui_w, ui_h) = config
         .margins
         .inner(resolution.width, resolution.height)
@@ -1433,11 +1444,20 @@ fn main() -> anyhow::Result<()> {
     hs.rotation = config.orientation.output_rotation(config.flip);
     hs.brightness = config.brightness;
     println!("Connected: {:?}, PM={} SUB={}", lcd.variant(), hs.pm, hs.sub);
+    trofeo_lcd::set_detected_panel(trofeo_lcd::panel_from_handshake(&hs.raw_response));
+    if config.panel_auto {
+        if let Some(p) = trofeo_lcd::detected_panel() {
+            config.panel = p.resolution();
+            println!("Panel recognised from the handshake: Trofeo Vision 11.3\" ({}x{})", config.panel.width, config.panel.height);
+        }
+    }
     println!(
-        "Orientation: {:?} (canvas {}x{}, rotation {}°)",
+        "Orientation: {:?} (canvas {}x{}, panel {}x{}, rotation {}°)",
         config.orientation,
-        config.orientation.canvas().width,
-        config.orientation.canvas().height,
+        config.orientation.canvas_for(config.panel).width,
+        config.orientation.canvas_for(config.panel).height,
+        config.panel.width,
+        config.panel.height,
         hs.rotation.degrees()
     );
     println!(
@@ -1665,7 +1685,7 @@ fn main() -> anyhow::Result<()> {
                                 println!("Configuration reloaded.");
                                 report_config_error("");
                                 if restart_needed {
-                                    println!("(deepcool, fps_monitor, openrgb, hide_console, screenshot_key, weather_city, ticker_source and ticker_refresh_min require a restart)");
+                                    println!("(deepcool, fps_monitor, openrgb, hide_console, screenshot_key, weather_city, ticker_source, ticker_source and ticker_refresh_min require a restart)");
                                 }
                                 config = new_cfg;
                             }
@@ -3230,6 +3250,77 @@ mod layout_tests {
                     ).unwrap();
                 }
             }
+        }
+    }
+
+    /// The Trofeo Vision 11.3 (1920x400): every screen draws without panics in both
+    /// orientations, the panel output has the right size and the game strip still fits.
+    #[test]
+    fn draws_on_the_11_3_panel() {
+        let panel = trofeo_lcd::TROFEO_VISION_11_3;
+        let data = layouts::WidgetData {
+            cpu_pct: 37.0, cpu_temp: Some(64.0), cpu_power: Some(88.0), cpu_mhz: Some(4900),
+            gpu_pct: Some(83.0), gpu_temp: Some(71), gpu_power: Some(245), fps: Some(144),
+            used_mb: 18200, total_mb: 32768, net_kb: (2300.0, 120.0), disk_mb: (35.2, 1.4),
+            now_playing: Some("Artist - A very long song title".into()),
+            weather: Some(weather::WeatherSnapshot {
+                temp_c: 21.0, humidity: Some(55), code: 61,
+                icon: weather_icon::WeatherIcon::Rain, city: Some("Milano".into()), forecast: sample_forecast(),
+            }),
+            ticker: vec!["First headline".into()],
+        };
+        for (tag, o) in [("l", Orientation::Landscape), ("p", Orientation::Portrait)] {
+            let canvas = o.canvas_for(panel);
+            let (cw, ch) = if tag == "l" { (1920, 400) } else { (400, 1920) };
+            assert_eq!((canvas.width, canvas.height), (cw, ch));
+            let mut fb = Framebuffer::new(canvas);
+            sample(&mut fb);
+            let out = fb.rotated(o.output_rotation(false));
+            assert_eq!((out.width(), out.height()), (1920, 400));
+            for def in layouts::LAYOUTS {
+                let mut f = Framebuffer::new(canvas);
+                f.clear(0x08, 0x08, 0x10);
+                let mut m = Marquee::new();
+                layouts::draw_layout(&mut f, def, &data, ColorMode::Default, &mut m);
+                if let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") {
+                    std::fs::write(
+                        format!("{dir}/p113_layout_{}_{tag}.ppm", def.name),
+                        [format!("P6\n{} {}\n255\n", f.width(), f.height()).into_bytes(), f.as_bytes().to_vec()].concat(),
+                    ).unwrap();
+                }
+            }
+            // The default screen with the pixel game strip.
+            let sys = System::new_all();
+            let gpu = gpu_amd::GpuAmdData::default();
+            let mut o2 = parse_ui_options(&ConfigFile::parse("").unwrap()).unwrap();
+            o2.status_style = StatusStyle::Lines;
+            TEST_OPTS.with(|t| *t.borrow_mut() = Some(o2));
+            TEST_GAME_STRIP.with(|t| t.set(true));
+            let mut g = Framebuffer::new(canvas);
+            g.clear(0, 0, 0);
+            let (main_rect, game_rect) = default_areas(&g);
+            if tag == "l" {
+                let gr = game_rect.expect("the game strip should fit on 1920x400");
+                assert!(gr.3 >= 84 && main_rect.3 >= 70, "{main_rect:?} {gr:?}");
+            }
+            draw_idle_clock(&mut g, ColorMode::Default);
+            if let Some(gr) = game_rect {
+                let mut pg = pixel_game::PixelGame::new();
+                pg.frame(&mut g, gr, &pixel_game::Inputs::default(), pixel_game::HeroChoice::Both, true);
+            }
+            let mut marquee = Marquee::new();
+            draw_status_lines(
+                &mut g, &sys, Some(37.0), &gpu, (123.0, 45.0), (1.5, 0.2), Some((40.0, false)),
+                Some(61.0), Some(88.0), Some(4900), Some("Artist - Song"), None, &mut marquee,
+            );
+            if let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") {
+                std::fs::write(
+                    format!("{dir}/p113_game_{tag}.ppm"),
+                    [format!("P6\n{} {}\n255\n", g.width(), g.height()).into_bytes(), g.as_bytes().to_vec()].concat(),
+                ).unwrap();
+            }
+            TEST_GAME_STRIP.with(|t| t.set(false));
+            TEST_OPTS.with(|t| *t.borrow_mut() = None);
         }
     }
 

@@ -13,7 +13,7 @@
 //! Search locations (if `--config <FILE>` is not given): `trofeo.conf`
 //! in the same folder as the program, then in the current working folder.
 
-use crate::Orientation;
+use crate::{Orientation, Panel, Resolution};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -145,6 +145,20 @@ impl ConfigFile {
         }
     }
 
+    /// Size of the panel's picture: `panel_size = 1920x400` wins over a model name
+    /// (`panel = trofeo-11.3`); neither = the Trofeo Vision 9.16 (1920x462).
+    pub fn panel_resolution(&self) -> Result<Resolution, String> {
+        if self.panel_is_auto() {
+            return Ok(crate::detected_panel().unwrap_or_default().resolution());
+        }
+        panel_from(self.get("panel"), self.get("panel_size"))
+    }
+
+    /// Neither `panel` nor `panel_size` is set: the model found at the handshake decides.
+    pub fn panel_is_auto(&self) -> bool {
+        self.get("panel").is_none() && self.get("panel_size").is_none()
+    }
+
     pub fn orientation(&self) -> Result<Option<Orientation>, String> {
         match self.get("orientation") {
             None => Ok(None),
@@ -152,6 +166,19 @@ impl ConfigFile {
                 .map(Some)
                 .ok_or_else(|| format!("orientation: '{v}' is not valid (landscape | portrait)")),
         }
+    }
+}
+
+/// Panel size from a model name and/or an explicit size (the size wins).
+pub fn panel_from(panel: Option<&str>, size: Option<&str>) -> Result<Resolution, String> {
+    let model = match panel {
+        None => Panel::default(),
+        Some(v) => Panel::parse(v).ok_or_else(|| format!("panel: '{v}' is not valid ({})", Panel::NAMES))?,
+    };
+    match size {
+        None => Ok(model.resolution()),
+        Some(v) => crate::parse_resolution(v)
+            .ok_or_else(|| format!("panel_size: '{v}' is not valid (WIDTHxHEIGHT, e.g. 1920x400)")),
     }
 }
 
@@ -217,6 +244,21 @@ impl ConfigFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_comes_from_the_model_or_an_explicit_size() {
+        let r = |t: &str| ConfigFile::parse(t).unwrap().panel_resolution();
+        assert_eq!(r("").unwrap(), Resolution::new(1920, 462));
+        assert_eq!(r("panel = trofeo-11.3\n").unwrap(), Resolution::new(1920, 400));
+        assert_eq!(r("panel = trofeo-9.16\n").unwrap(), Resolution::new(1920, 462));
+        // An explicit size wins over the model.
+        assert_eq!(r("panel = trofeo-11.3\npanel_size = 1920x440\n").unwrap(), Resolution::new(1920, 440));
+        assert_eq!(r("panel_size = 1280x480 # other\n").unwrap(), Resolution::new(1280, 480));
+        assert!(r("panel = nope\n").is_err());
+        assert!(r("panel_size = big\n").is_err());
+        assert_eq!(panel_from(Some("11.3"), None).unwrap(), Resolution::new(1920, 400));
+        assert_eq!(panel_from(None, Some("1920x400")).unwrap(), Resolution::new(1920, 400));
+    }
 
     #[test]
     fn hex_colors_are_not_comments() {

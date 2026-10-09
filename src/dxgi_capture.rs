@@ -101,9 +101,10 @@ pub mod windows_dxgi {
 
     impl DxgiSession {
         /// Create a new session. If `display_index` is `None`, it will
-        /// automatically look for a monitor at 1920x462 resolution. If none
-        /// is found, it picks monitor #1 (secondary) or #0 (primary).
-        pub fn new(display_index: Option<usize>) -> Result<Self> {
+        /// automatically look for a monitor of the panel's size (`panel`, e.g.
+        /// 1920x462, or the same turned upright). If none is found, it picks
+        /// monitor #1 (secondary) or #0 (primary).
+        pub fn new(display_index: Option<usize>, panel: (u32, u32)) -> Result<Self> {
             let displays = list_displays()?;
             if displays.is_empty() {
                 bail!("No monitors detected on the system!");
@@ -117,8 +118,8 @@ pub mod windows_dxgi {
                     idx
                 }
                 None => {
-                    // Look for a display at 1920x462 resolution (Trofeo Vision native)
-                    if let Some(pos) = displays.iter().position(|d| (d.width == 1920 && d.height == 462) || (d.width == 462 && d.height == 1920)) {
+                    // Look for a display of the panel's size (Trofeo Vision native)
+                    if let Some(pos) = displays.iter().position(|d| (d.width == panel.0 && d.height == panel.1) || (d.width == panel.1 && d.height == panel.0)) {
                         pos
                     } else if displays.len() > 1 {
                         1 // fallback to the second monitor
@@ -370,7 +371,7 @@ pub mod dummy {
     pub struct DxgiSession;
 
     impl DxgiSession {
-        pub fn new(_display_index: Option<usize>) -> Result<Self> {
+        pub fn new(_display_index: Option<usize>, _panel: (u32, u32)) -> Result<Self> {
             bail!("DXGI Desktop Duplication is only available on Windows.")
         }
 
