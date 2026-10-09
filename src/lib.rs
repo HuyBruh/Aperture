@@ -76,6 +76,73 @@ pub const MAX_FRAME_BYTES: usize = 450_000;
 /// Default resolution of the Trofeo Vision 9.16 LCD, per the notes in the original Python source.
 pub const TROFEO_VISION_9_16: Resolution = Resolution::new(1920, 462);
 
+/// Trofeo Vision 11.3 LCD, as given on Thermalright's product page (1920x400).
+/// Not verified on real hardware: if your unit needs another size, set it with
+/// `panel_size = WIDTHxHEIGHT`.
+pub const TROFEO_VISION_11_3: Resolution = Resolution::new(1920, 400);
+
+/// A known panel model: it decides the size of the picture that is sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Panel {
+    /// Trofeo Vision 9.16 LCD, 1920x462 (default).
+    #[default]
+    Trofeo9_16,
+    /// Trofeo Vision 11.3 LCD, 1920x400.
+    Trofeo11_3,
+}
+
+impl Panel {
+    pub const NAMES: &'static str = "trofeo-9.16 | trofeo-11.3";
+
+    pub fn parse(s: &str) -> Option<Panel> {
+        let t = s.trim().to_ascii_lowercase().replace(['_', ' '], "-");
+        let t = t.strip_prefix("trofeo-vision-").or_else(|| t.strip_prefix("trofeo-")).unwrap_or(&t);
+        match t.trim_end_matches("-lcd").trim_end_matches('"').trim_end_matches("in") {
+            "9.16" | "916" | "9.16-argb" => Some(Panel::Trofeo9_16),
+            "11.3" | "113" => Some(Panel::Trofeo11_3),
+            _ => None,
+        }
+    }
+
+    pub const fn resolution(self) -> Resolution {
+        match self {
+            Panel::Trofeo9_16 => TROFEO_VISION_9_16,
+            Panel::Trofeo11_3 => TROFEO_VISION_11_3,
+        }
+    }
+}
+
+/// Panel model recognised from the handshake (byte 20 of the response: 5 = Trofeo Vision
+/// 11.3). The 11.3 shares USB 0416:5408 and the handshake with the 9.16, so this byte is the
+/// only difference seen by other projects; it is NOT verified on hardware by this project.
+pub fn panel_from_handshake(raw: &[u8]) -> Option<Panel> {
+    (raw.get(20) == Some(&5)).then_some(Panel::Trofeo11_3)
+}
+
+static DETECTED_PANEL: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Remember the model found at the handshake (used by the config when `panel`/`panel_size`
+/// are not set, also after a hot reload).
+pub fn set_detected_panel(p: Option<Panel>) {
+    DETECTED_PANEL.store(matches!(p, Some(Panel::Trofeo11_3)) as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn detected_panel() -> Option<Panel> {
+    (DETECTED_PANEL.load(std::sync::atomic::Ordering::Relaxed) == 1).then_some(Panel::Trofeo11_3)
+}
+
+/// Parse a panel size such as `1920x400` (also `1920*400`, `1920 400`, `1920,400`).
+pub fn parse_resolution(s: &str) -> Option<Resolution> {
+    let t = s.trim().to_ascii_lowercase();
+    let mut it = t.split(|c: char| c == 'x' || c == '*' || c == ',' || c == ' ' || c == '×').filter(|p| !p.is_empty());
+    let w: u32 = it.next()?.trim().parse().ok()?;
+    let h: u32 = it.next()?.trim().parse().ok()?;
+    if it.next().is_some() || !(64..=8192).contains(&w) || !(64..=8192).contains(&h) {
+        return None;
+    }
+    Some(Resolution::new(w, h))
+}
+
 #[derive(Debug, Error)]
 pub enum LcdError {
     #[error("USB error: {0}")]
@@ -223,11 +290,16 @@ impl Orientation {
         }
     }
 
-    /// Logical canvas resolution the UI is drawn on.
+    /// Logical canvas resolution the UI is drawn on, for the 9.16" panel.
     pub fn canvas(self) -> Resolution {
+        self.canvas_for(TROFEO_VISION_9_16)
+    }
+
+    /// Logical canvas for a panel of the given (landscape) size.
+    pub fn canvas_for(self, panel: Resolution) -> Resolution {
         match self {
-            Orientation::Landscape => TROFEO_VISION_9_16,
-            Orientation::Portrait => TROFEO_VISION_9_16.transposed(),
+            Orientation::Landscape => panel,
+            Orientation::Portrait => panel.transposed(),
         }
     }
 
@@ -882,6 +954,53 @@ impl Framebuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_handshake_recognises_the_11_3() {
+        let mut r = vec![0u8; 512];
+        assert_eq!(panel_from_handshake(&r), None);
+        for v in [1u8, 2, 3] { r[20] = v; assert_eq!(panel_from_handshake(&r), None); }
+        r[20] = 5;
+        assert_eq!(panel_from_handshake(&r), Some(Panel::Trofeo11_3));
+        assert_eq!(panel_from_handshake(&r[..10]), None);
+    }
+
+    #[test]
+    fn panel_models_and_sizes() {
+        assert_eq!(Panel::default().resolution(), Resolution::new(1920, 462));
+        for n in ["trofeo-11.3", "Trofeo Vision 11.3 LCD", "11.3", "trofeo_11.3", "TROFEO-VISION-11.3"] {
+            assert_eq!(Panel::parse(n), Some(Panel::Trofeo11_3), "{n}");
+        }
+        for n in ["trofeo-9.16", "9.16", "Trofeo Vision 9.16 LCD"] {
+            assert_eq!(Panel::parse(n), Some(Panel::Trofeo9_16), "{n}");
+        }
+        assert_eq!(Panel::parse("trofeo-7.0"), None);
+        assert_eq!(Panel::Trofeo11_3.resolution(), Resolution::new(1920, 400));
+        for (t, w, h) in [("1920x400", 1920, 400), ("1920 X 440", 1920, 440), ("1920*400", 1920, 400), ("1920, 462", 1920, 462), ("1920×400", 1920, 400)] {
+            assert_eq!(parse_resolution(t), Some(Resolution::new(w, h)), "{t}");
+        }
+        for t in ["", "1920", "abcxdef", "1920x400x3", "10x10", "99999x400", "1920x-5"] {
+            assert_eq!(parse_resolution(t), None, "{t}");
+        }
+    }
+
+    #[test]
+    fn canvas_follows_the_panel_in_both_orientations() {
+        let p = TROFEO_VISION_11_3;
+        assert_eq!(Orientation::Landscape.canvas_for(p), Resolution::new(1920, 400));
+        assert_eq!(Orientation::Portrait.canvas_for(p), Resolution::new(400, 1920));
+        // What reaches the panel is always the panel's own size, whatever the orientation.
+        for o in [Orientation::Landscape, Orientation::Portrait] {
+            for flip in [false, true] {
+                let fb = Framebuffer::new(o.canvas_for(p));
+                let out = fb.rotated(o.output_rotation(flip));
+                assert_eq!((out.width(), out.height()), (1920, 400), "{o:?} flip={flip}");
+            }
+        }
+        // The 9.16 default is unchanged.
+        assert_eq!(Orientation::Landscape.canvas(), Resolution::new(1920, 462));
+        assert_eq!(Orientation::Portrait.canvas(), Resolution::new(462, 1920));
+    }
 
     #[test]
     fn chunk_count_has_trailing_empty_chunk_on_exact_multiple() {
