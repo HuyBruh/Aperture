@@ -25,6 +25,8 @@ struct Config {
     quality: u8,
     /// Orientation of the captured canvas (portrait = display mounted upright).
     orientation: Orientation,
+    /// Size of the panel's picture (landscape).
+    panel: trofeo_lcd::Resolution,
     /// Extra 180° rotation (upside-down screen).
     flip: bool,
     margins: Margins,
@@ -37,19 +39,21 @@ struct Config {
 
 fn print_help() {
     println!(
-        "trofeo_screen — Second Monitor Streamer for the Thermalright Trofeo Vision 9.16 LCD\n\n\
+        "trofeo_screen — Second Monitor Streamer for the Thermalright Trofeo Vision LCD (9.16 / 11.3 inch)\n\n\
         USAGE:\n\
         \x20 trofeo_screen [OPTIONS]\n\n\
         OPTIONS:\n\
         \x20 -l, --list-displays       List all detected monitors then exit\n\
         \x20 -d, --display <INDEX>     Index of the monitor to stream to the LCD\n\
-        \x20                           (default: automatically pick the 1920x462 monitor,\n\
-        \x20                            or the secondary monitor)\n\
+        \x20                           (default: automatically pick the monitor with the panel's\n\
+        \x20                            size, e.g. 1920x462, or the secondary monitor)\n\
         \x20     --fps <N>             Target FPS when the screen is changing (default: {DEFAULT_ACTIVE_FPS})\n\
         \x20     --idle-fps <N>        Target polling FPS when the screen is idle (default: {DEFAULT_IDLE_FPS})\n\
         \x20 -q, --quality <1-100>     JPEG compression quality (default: {DEFAULT_JPEG_QUALITY})\n\
         \x20     --orientation <O>     'landscape' (default) or 'portrait' (display mounted upright;\n\
         \x20                           virtual monitor must be 462x1920)\n\
+        \x20     --panel <MODEL>       trofeo-9.16 (default, 1920x462) or trofeo-11.3 (1920x400)\n\
+        \x20     --panel-size <WxH>    Picture size in pixels for another panel (e.g. 1920x440)\n\
         \x20 -r, --rotate, --flip      Rotate an extra 180 degrees (if the screen is upside down)\n\
         \x20     --margin <PX>         Inset the image from the edges (all sides)\n\
         \x20     --margin-top/-bottom/-left/-right <PX>  margin for a single side\n\
@@ -71,6 +75,7 @@ fn parse_args() -> Result<Config> {
     let mut quality = DEFAULT_JPEG_QUALITY;
     let mut flip_cli: Option<bool> = None;
     let mut orientation_cli: Option<Orientation> = None;
+    let (mut panel_cli, mut panel_size_cli): (Option<String>, Option<String>) = (None, None);
     let mut config_path: Option<std::path::PathBuf> = None;
     let mut brightness_cli: Option<u32> = None;
     let mut margin_all: Option<u32> = None;
@@ -122,6 +127,12 @@ fn parse_args() -> Result<Config> {
                     anyhow::anyhow!("--orientation: '{raw}' is invalid (landscape | portrait)")
                 })?);
             }
+            "--panel" => {
+                panel_cli = Some(args.next().ok_or_else(|| anyhow::anyhow!("--panel requires a model (trofeo-9.16 | trofeo-11.3)"))?);
+            }
+            "--panel-size" => {
+                panel_size_cli = Some(args.next().ok_or_else(|| anyhow::anyhow!("--panel-size requires WIDTHxHEIGHT"))?);
+            }
             "--margin" | "--margin-top" | "--margin-bottom" | "--margin-left" | "--margin-right" => {
                 let raw = args.next().ok_or_else(|| anyhow::anyhow!("{arg} requires a number of pixels"))?;
                 let v: u32 = raw.parse().map_err(|_| anyhow::anyhow!("{arg}: '{raw}' is not a valid number"))?;
@@ -167,6 +178,11 @@ fn parse_args() -> Result<Config> {
         Some(f) => f,
         None => file.get_bool("flip").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(false),
     };
+    let panel = trofeo_lcd::config::panel_from(
+        panel_cli.as_deref().or(file.get("panel")),
+        panel_size_cli.as_deref().or(file.get("panel_size")),
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     let mut margins = file.margins().map_err(|e| anyhow::anyhow!(e))?;
     if let Some(v) = margin_all {
@@ -191,6 +207,7 @@ fn parse_args() -> Result<Config> {
         idle_fps,
         quality,
         orientation,
+        panel,
         flip,
         margins,
         brightness: brightness as u8,
@@ -207,7 +224,7 @@ fn hide_console_window() -> Result<()> {
     Ok(())
 }
 
-fn show_displays() -> Result<()> {
+fn show_displays(panel: trofeo_lcd::Resolution) -> Result<()> {
     println!("Checking connected monitors...");
     let displays = dxgi_capture::list_displays()?;
     if displays.is_empty() {
@@ -223,7 +240,13 @@ fn show_displays() -> Result<()> {
     for d in &displays {
         let res = format!("{}x{}", d.width, d.height);
         let status = if d.is_attached { "Active" } else { "Inactive" };
-        let marker = if d.width == 1920 && d.height == 462 { " [MATCH 1920x462]" } else if d.width == 462 && d.height == 1920 { " [MATCH 462x1920 portrait]" } else { "" };
+        let marker = if d.width == panel.width && d.height == panel.height {
+            format!(" [MATCH {}x{}]", panel.width, panel.height)
+        } else if d.width == panel.height && d.height == panel.width {
+            format!(" [MATCH {}x{} portrait]", panel.height, panel.width)
+        } else {
+            String::new()
+        };
         println!(
             "{:<6} {:<24} {:<16} {:<12} {:<10}{}",
             d.index,
@@ -242,7 +265,7 @@ fn main() -> Result<()> {
     let config = parse_args()?;
 
     if config.list_only {
-        return show_displays();
+        return show_displays(config.panel);
     }
 
     #[cfg(windows)]
@@ -251,11 +274,11 @@ fn main() -> Result<()> {
     }
 
     println!("============================================================");
-    println!("  Trofeo Vision 9.16 — Second Monitor Streamer");
+    println!("  Trofeo Vision — Second Monitor Streamer");
     println!("============================================================");
 
     // Open the USB connection to the Trofeo LCD screen
-    println!("Looking for the Thermalright Trofeo Vision LCD device (0416:5408)...");
+    println!("Looking for the Thermalright Trofeo Vision LCD device (0416:5408 / 0416:5409)...");
     let lcd = match LyLcd::open() {
         Ok(l) => l,
         Err(e) => {
@@ -290,7 +313,7 @@ fn main() -> Result<()> {
     }
 
     // Initialize the DXGI screen capture session
-    let mut session = match DxgiSession::new(config.display_index) {
+    let mut session = match DxgiSession::new(config.display_index, (config.panel.width, config.panel.height)) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("\nFAILED to initialize monitor capture: {e}");
@@ -302,8 +325,9 @@ fn main() -> Result<()> {
     let (src_w, src_h) = session.src_resolution();
     let display_idx = session.display_index();
     println!(
-        "Capturing Display [{display_idx}] (Resolution: {src_w}x{src_h}) -> Streaming to LCD (canvas {}x{}, 1920x462 panel)",
-        config.orientation.canvas().width, config.orientation.canvas().height
+        "Capturing Display [{display_idx}] (Resolution: {src_w}x{src_h}) -> Streaming to LCD (canvas {}x{}, {}x{} panel)",
+        config.orientation.canvas_for(config.panel).width, config.orientation.canvas_for(config.panel).height,
+        config.panel.width, config.panel.height
     );
     println!(
         "Settings: Active FPS: {:.1} | Idle FPS: {:.1} | Quality: {}%",
@@ -311,7 +335,7 @@ fn main() -> Result<()> {
     );
     println!("Streaming started... Press Ctrl+C to stop.\n");
 
-    let resolution = config.orientation.canvas();
+    let resolution = config.orientation.canvas_for(config.panel);
     let mut fb = Framebuffer::new(resolution);
     // With margins, the capture goes into a smaller buffer, then gets pasted in the center.
     let (in_w, in_h) = config
@@ -373,7 +397,7 @@ fn main() -> Result<()> {
             Ok(CaptureResult::NeedsReinit) => {
                 eprintln!("Monitor mode changed or access was lost. Reinitializing capture...");
                 std::thread::sleep(Duration::from_millis(500));
-                if let Ok(new_sess) = DxgiSession::new(Some(display_idx)) {
+                if let Ok(new_sess) = DxgiSession::new(Some(display_idx), (config.panel.width, config.panel.height)) {
                     session = new_sess;
                     println!("Capture successfully reinitialized.");
                 }
