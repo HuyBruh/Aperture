@@ -9,7 +9,9 @@
 
 **A lightweight, open-source alternative to the official Thermalright TRCC
 software.** Audio visualizer + system info monitor for the
-**Thermalright Trofeo Vision 9.16 LCD** (USB `0416:5408`, "LY" protocol).
+**Thermalright Trofeo Vision 9.16 LCD** (USB `0416:5408`, "LY" protocol) and
+the **Trofeo Vision 11.3 LCD** (1920×400, same USB ID and protocol — see
+[Supported panels](#supported-panels)).
 
 This project is a fork of [sukualam/trofeo-lcd](https://github.com/sukualam/trofeo-lcd),
 whose driver was rewritten byte-for-byte from
@@ -121,10 +123,34 @@ handful of flags that only exist on the command line.
 | `--hide-console` | Hide the console window (Windows) | disabled |
 | `-k, --screenshot-key` | Global hotkey to save the current LCD frame as a lossless PNG screenshot (f1-f12, printscreen) | off |
 
+## Supported panels
+
+| Panel | Picture size | Setting |
+|---|---|---|
+| Trofeo Vision 9.16 | 1920×462 | default |
+| Trofeo Vision 11.3 | 1920×400 | recognised automatically, or `panel = trofeo-11.3` |
+
+The 11.3" panel uses the same USB ID (`0416:5408`) and the same handshake as the
+9.16", so it is **recognised automatically** from the handshake (byte 20 of the
+reply = 5). If it is not, or for any other size, set it by hand in `trofeo.conf`:
+
+```ini
+panel = trofeo-11.3        # trofeo-9.16 | trofeo-11.3
+# panel_size = 1920x400    # or any WIDTHxHEIGHT (wins over `panel`)
+```
+
+Every screen (default, layouts, music screen, pixel game, animated backgrounds)
+adapts to the panel size, in landscape and in portrait. At start-up the console
+prints `Connected: ... PM=.. SUB=..` and the canvas/panel size in use.
+**The 11.3" support has not been verified on real hardware yet**: if the picture
+is shifted, cropped or the panel stays black, please open an issue and paste
+those two console lines. For `trofeo_screen` (second-monitor mode) pass
+`--panel trofeo-11.3` and use a virtual display of 1920×400 (400×1920 in portrait).
+
 ## Orientation (landscape / portrait)
 
-The panel is physically 1920×462. If you mount it upright, use portrait:
-the UI is drawn on a 462×1920 canvas and rotated for the panel. Set it in a
+The 9.16" panel is physically 1920×462 (1920×400 for the 11.3"). If you mount it upright, use portrait:
+the UI is drawn on a 462×1920 canvas (400×1920 on the 11.3") and rotated for the panel. Set it in a
 config file (copy `trofeo.conf.example` to `trofeo.conf` next to the
 executable, or pass `--config <FILE>`) or on the command line:
 

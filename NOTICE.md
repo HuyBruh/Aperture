@@ -55,6 +55,8 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
   (pastel to fluorescent) or your own, adjustable speed, size and brightness, and a
   very low CPU cost (a coarse field stretched through a color table); also available
   behind the music screen.
+- Added support for the **Trofeo Vision 11.3"** panel (1920×400; same USB ID and
+  protocol as the 9.16", recognised automatically or via `panel` / `panel_size`).
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
   (lossless PNG), a **console-hide** option, and an adaptive idle/active FPS
   system.

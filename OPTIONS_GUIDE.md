@@ -62,6 +62,24 @@ to be command-line only too, but are now also `trofeo.conf` keys
 (`silence_threshold`, `silence_timeout_ms`) that apply live, like everything
 else in the file — the CLI flags still work and take priority if both are set.
 
+## Panel model — `panel` / `panel_size`
+
+| Key | CLI | Values | Default |
+|---|---|---|---|
+| `panel` | `--panel` | `trofeo-9.16` (1920×462), `trofeo-11.3` (1920×400) | automatic |
+| `panel_size` | `--panel-size` | `WIDTHxHEIGHT`, e.g. `1920x400` (wins over `panel`) | from `panel` |
+
+Without either key the model is recognised from the USB handshake: an 11.3" panel
+(handshake byte 20 = 5) gets 1920×400, anything else 1920×462. Set the key only if
+the automatic choice is wrong, or for a different size. All screens adapt to the
+size, in both orientations. The 11.3" has not been tested on real hardware yet.
+These keys are read at start-up and on config reload, but the panel is only
+re-detected when the program starts.
+
+```ini
+panel = trofeo-11.3
+```
+
 ## Orientation, flip, margins
 
 | Key | CLI | Values | Default |
@@ -72,7 +90,7 @@ else in the file — the CLI flags still work and take priority if both are set.
 | `margin_top`/`margin_bottom`/`margin_left`/`margin_right` | `--margin-top` etc. | integer px, one side (overrides `margin` for that side) | `0` |
 
 `portrait` draws the UI on a 462×1920 canvas (the panel mounted upright) instead
-of the native 1920×462. `flip` adds a further 180° on top of either orientation
+of the native 1920×462 (400×1920 / 1920×400 on the 11.3"). `flip` adds a further 180° on top of either orientation
 — use it if the image comes out upside down.
 
 ```ini
@@ -881,6 +899,7 @@ trofeo_lcd.exe --idle-fps 1 --active-fps 20
 ```ini
 # --- Look & feel ---
 orientation = landscape
+# panel = trofeo-11.3          # only if the 11.3" panel is not recognised by itself
 language = en
 text_color = #FFFFFF
 clock_color = #00C8FF

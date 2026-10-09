@@ -3,6 +3,12 @@
 # Priority: defaults < this file < command-line arguments.
 # Full reference (every option, with examples): see OPTIONS_GUIDE.md
 
+# --- Panel model ------------------------------------------------------------
+# Recognised automatically (Trofeo Vision 9.16 = 1920x462, 11.3 = 1920x400).
+# Set it only if the automatic choice is wrong:
+# panel = trofeo-11.3        # trofeo-9.16 | trofeo-11.3
+# panel_size = 1920x400      # or any WIDTHxHEIGHT (wins over `panel`)
+
 # --- Orientation ------------------------------------------------------------
 # landscape = horizontal display (1920x462, default)
 # portrait  = display mounted vertically (462x1920 canvas, rotated for the panel)
