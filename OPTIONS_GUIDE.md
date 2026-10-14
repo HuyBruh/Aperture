@@ -4,6 +4,34 @@ Every setting trofeo_lcd supports, in one place, with examples. For a shorter,
 inline-commented version you can copy and edit directly, see
 [`trofeo.conf.example`](./trofeo.conf.example).
 
+## Settings editor (`trofeo_config`)
+
+If you prefer clicking to typing, `trofeo_config` (`trofeo_config.exe` on Windows) edits
+the same file for you.
+
+- **Where to put it**: in the same folder as `trofeo_lcd.exe` (and `trofeo.conf`). It
+  opens `trofeo.conf` from its own folder; to edit another file, start it with the path
+  as its first argument, or use *Open...* in the window.
+- **The preview** at the top is drawn by `trofeo_lcd` itself (it needs
+  `trofeo_lcd.exe` next to the editor), with sample data (clock, CPU/GPU values, a song,
+  ...), so backgrounds, effects, layouts, tiles, colors and fonts look exactly as on the
+  display. Choose *Nothing playing* / *Music playing (spectrum)* / *Music card* to see the other
+  states, *Animate* to see the movement, and the layout selector to see each screen
+  of a rotation.
+- **Sections** on the left cover everything in this guide. An asterisk marks the settings
+  that need a restart of `trofeo_lcd`; a number shows how many settings of that section
+  you changed. A setting you leave at its default is not written to the file; the small
+  `x` next to a setting removes it from the file again. *Raw file* shows the text of the
+  file, for anything the form does not cover.
+- **Saving** keeps your comments and every line the editor does not touch, writes the
+  changes it makes under a "Added by the settings editor" comment (or in place, when the
+  key is already in the file), and copies the old file to `trofeo.conf.bak` the first time you save in each session.
+  A running `trofeo_lcd` applies the saved changes within a second (hot reload).
+- If the preview shows a red message, that is the real program refusing a value, in its
+  own words; nothing is saved until you press *Save*.
+- The editor is not resident: close it when you are done, `trofeo_lcd` does not need it.
+  On Linux the file dialogs are replaced by a text box with the path.
+
 ## How settings work
 
 - **Config file**: copy `trofeo.conf.example` to `trofeo.conf`, next to the

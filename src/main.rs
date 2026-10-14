@@ -230,6 +230,30 @@ struct Config {
     /// Background position/fit.
     bg_layout: BgLayout,
     ui: UiOptions,
+    /// `--preview-png`: draw ONE frame with sample data into a PNG and exit (used by the
+    /// settings editor `trofeo_config` for its live preview; nothing is sent to the LCD).
+    preview: Option<PreviewReq>,
+}
+
+/// What the settings editor asks `--preview-png` to draw.
+#[derive(Clone, Debug, PartialEq)]
+struct PreviewReq {
+    path: std::path::PathBuf,
+    /// Time (seconds) for the animated backgrounds.
+    secs: f64,
+    state: PreviewState,
+    /// Which entry of the `layout` list to show (0 = the first).
+    layout: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewState {
+    /// Nothing is playing: the big clock / the panel layout.
+    Idle,
+    /// Music is playing: the spectrum.
+    Playing,
+    /// The now-playing card (only when `music_screen = true`).
+    Music,
 }
 
 fn print_help() {
@@ -470,6 +494,8 @@ fn parse_args() -> anyhow::Result<Config> {
     let mut weather_city_cli: Option<String> = None;
     let mut overrides: Vec<(String, String)> = Vec::new();
     let mut color_set = false;
+    let (mut preview_path, mut preview_secs, mut preview_state, mut preview_layout) =
+        (None::<std::path::PathBuf>, 0.0f64, PreviewState::Idle, 0usize);
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -540,6 +566,22 @@ fn parse_args() -> anyhow::Result<Config> {
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--weather-city requires a city name"))?,
                 )
+            }
+            "--preview-png" => {
+                preview_path = Some(
+                    args.next().ok_or_else(|| anyhow::anyhow!("--preview-png requires a file path"))?.into(),
+                );
+            }
+            "--preview-time" => preview_secs = next_f32(&mut args, "--preview-time")? as f64,
+            "--preview-layout" => preview_layout = next_u64(&mut args, "--preview-layout")? as usize,
+            "--preview-state" => {
+                let raw = args.next().ok_or_else(|| anyhow::anyhow!("--preview-state requires idle | playing | music"))?;
+                preview_state = match raw.to_ascii_lowercase().as_str() {
+                    "idle" => PreviewState::Idle,
+                    "playing" | "spectrum" => PreviewState::Playing,
+                    "music" => PreviewState::Music,
+                    _ => anyhow::bail!("--preview-state: '{raw}' not valid (idle | playing | music)"),
+                };
             }
             "--diag" => {
                 // Handled in `main()` after parsing, so it can see `weather_city`;
@@ -712,6 +754,8 @@ fn parse_args() -> anyhow::Result<Config> {
         fps_monitor,
         bg_layout,
         ui,
+        preview: preview_path
+            .map(|path| PreviewReq { path, secs: preview_secs, state: preview_state, layout: preview_layout }),
     })
 }
 
@@ -1491,6 +1535,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if let Some(req) = config.preview.clone() {
+        return run_preview(&config, &req);
+    }
+
     // MUST be the very first thing after parse_args — before any other
     // println!/eprintln! below this (see this function's docs).
     #[cfg(windows)]
@@ -2090,6 +2138,205 @@ fn main() -> anyhow::Result<()> {
             std::thread::sleep(target_frame_time - elapsed);
         }
     }
+}
+
+/// Draws ONE frame of the interface with made-up sensor values into a PNG and returns — the
+/// settings editor (`trofeo_config`) shows it as its live preview, so what it displays is
+/// exactly what the program draws. It follows the same order as the main loop: background,
+/// tiles, the screen itself (layout / clock / spectrum / music card), the pixel game, the
+/// status lines and the ticker. Nothing is sent to the LCD and no sensor or audio device is opened.
+fn run_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<()> {
+    let fb = render_preview(config, req)?;
+    std::fs::write(&req.path, png_save::encode(&fb))
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", req.path.display()))?;
+    Ok(())
+}
+
+/// The sample data of the preview (the program is not reading any sensor here).
+fn preview_data() -> (layouts::WidgetData, gpu_amd::GpuAmdData, weather::WeatherSnapshot) {
+    use weather_icon::WeatherIcon;
+    let weather = weather::WeatherSnapshot {
+        temp_c: 21.0,
+        humidity: Some(58),
+        code: 2,
+        icon: WeatherIcon::PartlyCloudy,
+        city: Some("Milano".to_string()),
+        forecast: Vec::new(),
+    };
+    let gpu = gpu_amd::GpuAmdData {
+        temp_edge_c: Some(58),
+        power_w: Some(142),
+        fan_rpm: Some(1480),
+        fps: Some(144),
+        ..Default::default()
+    };
+    let wd = layouts::WidgetData {
+        cpu_pct: 37.0,
+        cpu_temp: Some(61.0),
+        cpu_power: Some(48.0),
+        cpu_mhz: Some(4350),
+        gpu_pct: Some(46.0),
+        gpu_temp: gpu.temp_edge_c,
+        gpu_power: gpu.power_w,
+        fps: gpu.fps,
+        used_mb: 11_800,
+        total_mb: 32_768,
+        net_kb: (850.0, 120.0),
+        disk_mb: (14.0, 3.0),
+        now_playing: Some("Artist - Song title".to_string()),
+        weather: Some(weather.clone()),
+        ticker: vec!["Sample headline: this is how the ticker looks".into(), "Second headline of the preview".into()],
+    };
+    (wd, gpu, weather)
+}
+
+fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuffer> {
+    use std::sync::atomic::Ordering::Relaxed;
+    i18n::set_language(config.language);
+    set_ui_options(config.ui.clone());
+    let Display { background, composite, mut fb, mut ui, .. } = build_display(config)?;
+    let mut background = background;
+    let (wd, gpu_data, weather) = preview_data();
+    let o = opts();
+    let ui_show = o.show;
+
+    // Which screen: the layout list entry asked for, or the standard one.
+    let layouts_list = &config.ui.layouts;
+    let idx = req.layout.min(layouts_list.len().saturating_sub(1));
+    let active_def = layouts_list.get(idx).map(|(d, _)| *d).filter(|d| !d.standard);
+    ACTIVE_PANEL.store(active_def.is_some(), Relaxed);
+    ACTIVE_ITEMS.store(layouts_list.get(idx).is_some_and(|(d, _)| d.name == "default2"), Relaxed);
+    let music_on = req.state == PreviewState::Music && o.music_screen;
+    let is_idle = !music_on && (req.state != PreviewState::Playing || !ui_show.spectrum);
+    let game_wanted = o.pixel_game && ui_show.clock && !music_on && layouts_list.get(idx).map_or(true, |(d, _)| d.standard);
+    GAME_STRIP.store(game_wanted, Relaxed);
+    let game_on = game_wanted && default_areas(&fb).1.is_some();
+    let tiles_now = is_idle && active_def.is_some_and(|d| d.name == "tiles");
+    let color_mode = config.color_mode;
+
+    let mut sys = System::new_all();
+    sys.refresh_cpu();
+    std::thread::sleep(Duration::from_millis(220));
+    sys.refresh_cpu();
+    sys.refresh_memory();
+
+    // Base: background, then the interface on the keyed buffer (as in the main loop).
+    if composite {
+        match (background.as_mut(), config.ui.effect.style) {
+            (Some(bg), _) => bg.render_into(&mut fb),
+            (None, Some(style)) => {
+                effect::Effect::new().render_at(&mut fb, &config.ui.effect, style, config.ui.effect.brightness, req.secs)
+            }
+            (None, None) => {
+                let c = config.background_color.unwrap_or((0x08, 0x08, 0x10));
+                fb.clear(c.0, c.1, c.2)
+            }
+        }
+        ui.clear(UI_KEY.0, UI_KEY.1, UI_KEY.2);
+    } else {
+        fb.clear(0x08, 0x08, 0x10);
+    }
+    if tiles_now {
+        let area = if composite {
+            (config.margins.left, config.margins.top, ui.width(), ui.height())
+        } else {
+            (0, 0, fb.width(), fb.height())
+        };
+        let env = tiles::Env { fps: config.active_fps, ffmpeg: config.ffmpeg.as_deref(), effect: &config.ui.effect };
+        tiles::TilesScreen::new().draw(&mut fb, area, &wd, color_mode, &o.tiles, &env);
+    }
+    let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };
+
+    // Spectrum of the sample music: a few moving humps.
+    let bars: Vec<f32> = (0..NUM_BARS)
+        .map(|i| {
+            let x = i as f32 / NUM_BARS as f32;
+            let a = ((x * 9.0 + req.secs as f32 * 1.3).sin() * 0.5 + 0.5) * (1.0 - x * 0.55);
+            (0.12 + 0.75 * a).clamp(0.0, 1.0)
+        })
+        .collect();
+    let mut peaks = spectrum::PeakTracker::new(NUM_BARS);
+    peaks.update(&bars, 0.1);
+
+    if music_on {
+        let mut music = music_screen::MusicScreen::new();
+        music.stats = music_screen::Stats {
+            cpu: Some(wd.cpu_pct),
+            cpu_temp: wd.cpu_temp,
+            gpu: wd.gpu_pct,
+            gpu_temp: wd.gpu_temp,
+            ram_mb: Some((wd.used_mb, wd.total_mb)),
+            net_kb: Some(wd.net_kb),
+            disk_mb: Some(wd.disk_mb),
+            time: Local::now().format("%H:%M:%S").to_string(),
+            uptime: format_uptime(System::uptime()),
+        };
+        let track = media::TrackInfo {
+            title: "Song title".into(),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            cover: None,
+            timeline: Some(media::Timeline {
+                position_ms: 83_000,
+                duration_ms: 215_000,
+                playing: true,
+                sampled_at: Instant::now(),
+            }),
+        };
+        music.draw(target, &track, &bars, peaks.peaks(), &o);
+    } else if is_idle {
+        if let Some(def) = active_def {
+            layouts::draw_layout(target, def, &wd, color_mode, &mut Marquee::new());
+        } else if ui_show.clock {
+            draw_idle_clock(target, color_mode);
+        }
+    } else {
+        draw_bars(target, &bars, peaks.peaks(), color_mode);
+    }
+    if game_on {
+        if let Some(rect) = default_areas(target).1 {
+            let now = Local::now();
+            let inputs = pixel_game::Inputs {
+                cpu: wd.cpu_pct,
+                net_kb: 970.0,
+                disk_mb: 17.0,
+                music: req.state != PreviewState::Idle,
+                bass: 0.4,
+                weather: Some(weather.icon),
+                hour: now.hour(),
+                minute: now.minute(),
+                second: now.second(),
+                unix_secs: now.timestamp().max(0) as u64,
+            };
+            pixel_game::PixelGame::new().frame(target, rect, &inputs, o.pixel_game_hero, o.pixel_game_hud);
+        }
+    }
+    if !music_on {
+        draw_status_lines(
+            target,
+            &sys,
+            wd.gpu_pct,
+            &gpu_data,
+            wd.net_kb,
+            wd.disk_mb,
+            Some((65.0, false)),
+            wd.cpu_temp,
+            wd.cpu_power,
+            wd.cpu_mhz,
+            wd.now_playing.as_deref(),
+            Some(&weather),
+            &mut Marquee::new(),
+        );
+        // (without a `ticker_source` the program has no headlines, so nothing is drawn)
+        if ui_show.ticker && config.ticker_source.is_some() {
+            draw_ticker_bar(target, &wd.ticker, &mut Marquee::new());
+        }
+    }
+    if composite {
+        let panel = (config.ui.panel_opacity < 100).then_some((PANEL_KEY, PANEL_COLOR, config.ui.panel_opacity));
+        fb.blit_ui(&ui, config.margins.left, config.margins.top, UI_KEY, panel);
+    }
+    Ok(fb)
 }
 
 /// Standard Hann window (reduces spectral leakage before the FFT).
@@ -3818,6 +4065,113 @@ mod layout_tests {
         assert!(e("effect_theme = pink\n").is_err());
         assert!(is_override_key("effect_theme"));
         assert!(is_override_key("effect_level"));
+    }
+
+    /// Whether the program accepts `text` as a configuration (every parser that reads the file).
+    fn program_accepts(text: &str) -> Result<(), String> {
+        let file = ConfigFile::parse(text)?;
+        parse_ui_options(&file).map_err(|e| e.to_string())?;
+        file.margins()?.inner(1920, 462)?;
+        file.margins()?.inner(462, 1920)?;
+        file.panel_resolution()?;
+        file.orientation()?;
+        parse_bg_layout(&file).map_err(|e| e.to_string())?;
+        if let Some(l) = file.get("language") {
+            Lang::parse(l).ok_or_else(|| format!("language {l}"))?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schema_values_are_accepted_by_the_program() {
+        use trofeo_lcd::schema::{fields, Kind};
+        let mut tried = 0;
+        for f in fields() {
+            // keys the program only reads on the command-line path (parse_args) are range-checked there
+            let key = f.key.as_str();
+            let mut values: Vec<String> = Vec::new();
+            match &f.kind {
+                Kind::Bool => values.extend(["true".into(), "false".into()]),
+                Kind::Choice(o) => values.extend(o.iter().map(|s| s.to_string())),
+                Kind::Multi(o) => {
+                    values.extend(o.iter().map(|s| s.to_string()));
+                    // two at once (not the stand-alone ones)
+                    let plain: Vec<&&str> = o.iter().filter(|s| **s != "all" && **s != "none").collect();
+                    if plain.len() >= 2 {
+                        values.push(format!("{}, {}", plain[0], plain[1]));
+                    }
+                }
+                Kind::Int { min, max } => values.extend([min.to_string(), ((min + max) / 2).to_string(), max.to_string()]),
+                Kind::Float { min, max } => values.extend([format!("{min}"), format!("{max}")]),
+                Kind::Color => values.extend(["#112233".into(), "red".into(), "10,20,30".into()]),
+                Kind::ColorList if matches!(key, "effect_colors" | "spectrum_gradient") => values.push("#112233, #445566".into()),
+                Kind::ColorList => values.extend(["#112233".into(), "#112233, #445566".into()]),
+                Kind::BarColor => values.extend(["auto".into(), "#112233".into(), "#112233, #445566".into()]),
+                Kind::Text | Kind::Path | Kind::Layout | Kind::Tiles => {}
+            }
+            for v in values {
+                // the settings some values need next to them
+                let extra = match (key, v.as_str()) {
+                    ("tiles_bg", "image") => "tiles_bg_image = picture.png\n",
+                    ("effect_palette", "custom") => "effect_colors = #112233, #445566\n",
+                    ("spectrum_palette", "custom") => "spectrum_gradient = #112233, #445566\n",
+                    _ => "",
+                };
+                // a single color for keys that take a list is fine, but "default" means nothing there
+                let text = format!("{extra}{key} = {v}\n");
+                if let Err(e) = program_accepts(&text) {
+                    panic!("the editor offers `{key} = {v}` but the program refuses it: {e}");
+                }
+                tried += 1;
+            }
+        }
+        assert!(tried > 400, "only {tried} values were tried");
+    }
+
+    #[test]
+    fn schema_names_match_the_program() {
+        use trofeo_lcd::schema::*;
+        // layouts
+        let names: Vec<&str> = layouts::LAYOUTS.iter().map(|l| l.name).collect();
+        assert_eq!(LAYOUT_NAMES.iter().map(|(n, _, _)| *n).collect::<Vec<_>>(), names);
+        // tiles
+        assert_eq!(TILE_KINDS.iter().map(|(n, _, _)| *n).collect::<Vec<_>>(), tiles::Kind::ALL.iter().map(|k| k.key()).collect::<Vec<_>>());
+        // colors
+        for (n, c) in COLOR_NAMES {
+            assert_eq!(named_color(n), Some(*c), "{n}");
+        }
+        // items of the info block
+        for (k, _, _) in ITEMS {
+            assert!(item_key(&format!("{k}_size")).is_some(), "{k}");
+        }
+        // effects and their colors
+        for e in EFFECTS.iter().filter(|e| **e != "none") {
+            assert!(effect::Style::parse(e).is_some(), "{e}");
+        }
+        for p in EFFECT_PALETTES.iter().filter(|p| !["custom", "all"].contains(p)) {
+            assert!(effect::Palette::parse(p).is_some(), "{p}");
+        }
+        // every key of the editor is one the program reads from the config file
+        let from_cli_or_file = |k: &str| is_override_key(k) || ["orientation", "flip", "panel_size", "background", "background_dim", "ffmpeg", "language",
+            "color", "silence_threshold", "silence_timeout_ms", "weather_city", "ticker_source", "ticker_refresh_min", "margin", "margin_top", "margin_bottom", "margin_left", "margin_right"].contains(&k);
+        for f in fields() {
+            assert!(from_cli_or_file(&f.key), "{} is not a key of the program", f.key);
+        }
+    }
+
+    #[test]
+    fn schema_generated_lists_are_accepted() {
+        // the strings the editor's layout and tiles widgets write
+        for t in [
+            "layout = default",
+            "layout = default:30, weather:5",
+            "layout = tiles:20, cpu-gpu, news",
+            "tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring",
+            "tiles = clock",
+            "tiles = cpu:ring | gpu:ring | ram | net",
+        ] {
+            program_accepts(&format!("{t}\n")).unwrap_or_else(|e| panic!("{t}: {e}"));
+        }
     }
 
     #[test]

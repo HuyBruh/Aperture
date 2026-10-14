@@ -53,6 +53,9 @@ language = en
 # Hiding the audio spectrum: with hide = spectrum, the big clock stays visible
 # during playback (if you don't hide it too) and the fps stays low.
 # hide = spectrum
+#
+# Decimals in the CPU/GPU/RAM percentages: 0 = "37%" (default), 1 = "37.4%"
+# percent_decimals = 0
 
 # --- Colors (#RRGGBB, R,G,B, or a name: red, green, blue, yellow, white...)
 # color = green              # spectrum bars (default: green->red gradient)

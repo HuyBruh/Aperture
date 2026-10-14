@@ -64,6 +64,11 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
   water level is adjustable (`effect_level`) and there are three water color presets.
 - Added a **light (white) variant** of the matrix, rain and aquarium backgrounds
   (`effect_theme = light`).
+- Added a **graphical settings editor** (`trofeo_config`, built with egui): a separate
+  small program that only creates and edits `trofeo.conf` (comments preserved), with a live
+  preview drawn by `trofeo_lcd` itself (`--preview-png`). It uses the
+  [egui/eframe](https://github.com/emilk/egui) GUI library (MIT or Apache-2.0) and, on
+  Windows, [rfd](https://github.com/PolyMeilex/rfd) (MIT) for the file dialogs.
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
   (lossless PNG), a **console-hide** option, and an adaptive idle/active FPS
   system.

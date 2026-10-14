@@ -1,6 +1,6 @@
 [package]
 name = "trofeo_lcd"
-version = "1.0.63"
+version = "1.0.42"
 edition = "2021"
 description = "A lightweight open-source driver/monitor for the Thermalright Trofeo Vision 9.16 LCD (LY protocol, USB 0416:5408), based on reverse-engineering from thermalright-trcc-linux"
 license = "GPL-3.0-or-later"
@@ -34,8 +34,13 @@ sysinfo = { version = "0.30", default-features = false }
 thiserror = "1.0"
 tokio = { version = "1", features = ["rt", "net", "time"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# The settings editor (src/bin/config_editor.rs -> trofeo_config.exe): a small window that
+# only edits trofeo.conf. It is a separate program, so trofeo_lcd.exe never loads any of it.
+eframe = { version = "0.29", default-features = false, features = ["glow", "default_fonts", "x11"] }
 
 [target."cfg(windows)".dependencies]
+# File dialogs of the settings editor (Open / Save as / pick a picture).
+rfd = { version = "0.15", default-features = false }
 wasapi = "0.24.0"
 # Used for GPU usage (PDH), network & disk IO (IP Helper / DeviceIoControl),
 # master volume (IAudioEndpointVolume/COM), the currently-playing media title
@@ -84,6 +89,10 @@ path = "src/main.rs"
 [[bin]]
 name = "trofeo_screen"
 path = "src/bin/screen.rs"
+
+[[bin]]
+name = "trofeo_config"
+path = "src/bin/config_editor.rs"
 
 [target."cfg(target_os = \"linux\")".dependencies]
 # Loopback audio (EQ bars) via PulseAudio OR PipeWire+pipewire-pulse — see

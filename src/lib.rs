@@ -47,6 +47,8 @@ pub mod font;
 pub mod dxgi_capture;
 pub mod background;
 pub mod config;
+pub mod conf_edit;
+pub mod schema;
 pub mod i18n;
 pub mod layout;
 pub mod hotkey;
