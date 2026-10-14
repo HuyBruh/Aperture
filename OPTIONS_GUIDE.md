@@ -62,24 +62,6 @@ to be command-line only too, but are now also `trofeo.conf` keys
 (`silence_threshold`, `silence_timeout_ms`) that apply live, like everything
 else in the file — the CLI flags still work and take priority if both are set.
 
-## Panel model — `panel` / `panel_size`
-
-| Key | CLI | Values | Default |
-|---|---|---|---|
-| `panel` | `--panel` | `trofeo-9.16` (1920×462), `trofeo-11.3` (1920×400) | automatic |
-| `panel_size` | `--panel-size` | `WIDTHxHEIGHT`, e.g. `1920x400` (wins over `panel`) | from `panel` |
-
-Without either key the model is recognised from the USB handshake: an 11.3" panel
-(handshake byte 20 = 5) gets 1920×400, anything else 1920×462. Set the key only if
-the automatic choice is wrong, or for a different size. All screens adapt to the
-size, in both orientations. The 11.3" has not been tested on real hardware yet.
-These keys are read at start-up and on config reload, but the panel is only
-re-detected when the program starts.
-
-```ini
-panel = trofeo-11.3
-```
-
 ## Orientation, flip, margins
 
 | Key | CLI | Values | Default |
@@ -90,7 +72,7 @@ panel = trofeo-11.3
 | `margin_top`/`margin_bottom`/`margin_left`/`margin_right` | `--margin-top` etc. | integer px, one side (overrides `margin` for that side) | `0` |
 
 `portrait` draws the UI on a 462×1920 canvas (the panel mounted upright) instead
-of the native 1920×462 (400×1920 / 1920×400 on the 11.3"). `flip` adds a further 180° on top of either orientation
+of the native 1920×462. `flip` adds a further 180° on top of either orientation
 — use it if the image comes out upside down.
 
 ```ini
@@ -126,47 +108,92 @@ language = it
 | Key | CLI | Values | Default |
 |---|---|---|---|
 | `background` | `--background <FILE>` | path to an image (jpg/png/bmp), animated GIF, or video | none |
+| `background_color` | `--background-color` | a solid color: a name (`black`, `white`, `green`, `pink`, …), `#RRGGBB` or `R,G,B` | none (dark navy) |
 | `background_dim` | `--background-dim` | `0`-`100` | `40` |
 | `ffmpeg` | `--ffmpeg <PATH>` | path to `ffmpeg.exe` | next to the exe, then `PATH` |
 | `background_fit` | `--background-fit` | `cover`, `stretch`, `contain`, `original` | `cover` |
 | `background_position` | `--background-position` | a [position](#positions) | `center` |
 | `background_offset_x`/`background_offset_y` | `--background-offset-x/-y` | integer px (+ = right/down) | `0` |
 
+**Solid color.** `background_color` fills the whole panel with one flat color
+(behind the margins, the panels and everything else). Names are not case sensitive,
+spaces / `-` / `_` are ignored (`dark green` = `darkgreen`) and Italian and Indonesian
+names work too. Available names: `black`, `white`, `gray`, `lightgray`, `darkgray`,
+`silver`, `red`, `darkred`, `green`, `darkgreen`, `lightgreen`, `lime`, `olive`, `blue`,
+`navy`, `lightblue`, `skyblue`, `yellow`, `gold`, `cyan`, `teal`, `turquoise`, `magenta`,
+`pink` (pale pink), `hotpink`, `salmon`, `coral`, `orange`, `brown`, `beige`, `purple`,
+`violet`, `indigo`, `lavender`. For anything else use hex: `#1B2A4A`. An image, GIF or
+video (`background`) or an animated effect, if you also set one, is shown instead.
+The same names and hex codes work for every color option (`text_color`, `clock_color`,
+`tiles_bg_color`, …).
+
 Video backgrounds need ffmpeg; `background_dim` darkens the image so text
 stays readable over it. With an animated background (GIF or video) the idle
 FPS is automatically raised to the active FPS, so the animation stays smooth
 even while nothing else is happening. For a soft moving background that needs
-no file at all see [Animated background effect](#animated-background-effect-plasma-aurora-lava-waves).
+no file at all see [Animated background effect](#animated-background-effect-plasma-aurora-lava-waves-matrix-rain-aquarium).
 
 ```ini
 background = C:\Pictures\space.mp4
 background_dim = 55
 background_fit = cover
 ffmpeg = C:\ffmpeg\bin\ffmpeg.exe
+
+# or a flat color instead of a picture:
+# background_color = black        # a name ...
+# background_color = #0B1D3A      # ... or a hex code
 ```
 
-## Animated background effect (plasma, aurora, lava, waves)
+## Animated background effect (plasma, aurora, lava, waves, matrix, rain, aquarium)
 
 Instead of a picture, the background can be a slow, soft effect whose colors
 blend into each other and drift: a plasma, curtains of aurora, a lava lamp or
-silk-like waves. It is drawn behind everything (clock, status lines, spectrum,
+silk-like waves — a minimal **digital rain** (`matrix`, `rain`) or an **aquarium** seen from the side. It is drawn behind everything (clock, status lines, spectrum,
 the pixel game, layouts), costs almost no CPU, and you choose the colors, the
 speed and the brightness.
 
 | Key | CLI | Values | Default |
 |---|---|---|---|
-| `background_effect` | `--background-effect` | `plasma` / `aurora` / `lava` / `waves` / `none` | `none` |
-| `effect_palette` | `--effect-palette` | `pastel` / `fluo` / `neon` / `candy` / `sunset` / `ocean` / `aurora` / `fire` / `forest` / `ice` / `mono` / `rainbow` / `custom`; several (comma-separated) or `all` rotate | `neon` |
+| `background_effect` | `--background-effect` | `plasma` / `aurora` / `lava` / `waves` / `matrix` / `rain` / `aquarium` / `none` | `none` |
+| `effect_palette` | `--effect-palette` | `pastel` / `fluo` / `neon` / `candy` / `sunset` / `ocean` / `aurora` / `fire` / `forest` / `ice` / `mono` / `rainbow` / `custom`; for `matrix` / `rain` also `matrix` (green) / `amber` / `violet` / `crimson` / `snow` (white); for `aquarium` also `lagoon` / `deep` / `tropical`; several (comma-separated) or `all` rotate | `neon` |
 | `effect_colors` | `--effect-colors` | 2 or more colors, e.g. `#FF0080, #00FFFF` | — |
 | `effect_palette_interval` | `--effect-palette-interval` | `5`-`3600` seconds (rotation period) | `60` |
 | `effect_speed` | `--effect-speed` | `0` (frozen) - `100` (fast) | `30` |
 | `effect_scale` | `--effect-scale` | `25`-`400` % (size of the features; bigger = larger, calmer shapes) | `100` |
 | `effect_brightness` | `--effect-brightness` | `0`-`100` | `40` |
 | `effect_fps` | `--effect-fps` | `1`-`30` | `8` |
+| `effect_level` | `--effect-level` | `0`-`100` % (`aquarium` only: how high the water reaches; `0` empty, `100` full) | `50` |
 
 - **Styles** (`background_effect`): `plasma` is the classic demoscene look (a
   sum of waves and a moving ring); `aurora` is undulating bands of light; `lava`
   is soft blobs that drift and merge; `waves` is smooth diagonal ripples (silk).
+  `matrix` is a minimal digital rain: columns of characters (digits and letters)
+  falling at different speeds, each with a bright head and a fading tail, on a dark
+  background. `rain` is the same idea reduced to the bare minimum: thin streaks of
+  light with no characters. Both are sparse (well under a quarter of the panel is lit),
+  so text stays readable, and they cost less than the soft styles. `effect_scale`
+  sets the size of the characters / thickness of the streaks, `effect_speed` how fast
+  they fall (`30` is a calm rain).
+- **Aquarium** (`background_effect = aquarium`): the panel becomes the glass of an
+  aquarium seen from the side. A moving, slightly irregular **water surface** with a
+  bright edge separates the dark air from the water, so you always see where the water
+  ends; under it the water darkens with depth, soft **rays of light** slant down from the
+  surface, a fine net of **caustics** shimmers near the top and a few **bubbles** rise and
+  fade as they reach the surface. `effect_level` decides how much of the panel is water
+  (`50` = half; `80` = nearly full with the surface in the top fifth; `0` = empty). The
+  surface works in portrait as well. `effect_speed` is the speed of the waves and bubbles,
+  `effect_scale` makes waves, bubbles and light patterns larger (and calmer).
+  Colors: `lagoon` (turquoise, the default), `deep` (blue to navy), `tropical`
+  (green-turquoise); any other palette works too — its lightest color is the surface and
+  its darkest the bottom, whatever order the colors are written in (so `ocean`, `ice` or your own
+  `effect_colors = #FFD28A, #7A2E00` give water of those colors). If you do not set
+  `effect_brightness`, the aquarium uses `65` instead of `40` (water needs more light to look
+  like water). Cost: about 5 ms per frame, a bit more than the soft styles; lower
+  `effect_fps` to 5 if you want it lighter.
+- **Rain colors**: if you set no palette, `matrix` and `rain` are green. One-colour
+  presets made for them: `matrix` (green, also `green` / `verde`), `amber` (old
+  terminal), `violet`, `crimson` and `snow` (white). Any other palette works too
+  (`neon` gives multi-colour streaks), as do your own `effect_colors` (two or more). These five presets are not part of `all`.
 - **Colors** (`effect_palette`): `pastel` soft light tones, `fluo` highlighter
   colors (hot pink, yellow, green, cyan, violet), `neon` magenta / violet / blue /
   cyan, `candy` sweet pinks and mints, `sunset`, `ocean`, `aurora` (greens and
@@ -212,6 +239,15 @@ possible, lower `effect_fps` (4-5 is still smooth at the default speed) or set
 normal 2 fps. A fast `effect_speed` needs a higher `effect_fps` to look smooth.
 
 ```ini
+# minimal digital rain, amber like an old terminal
+background_effect = matrix
+effect_palette = amber
+
+# an aquarium, water up to 60% of the height
+# background_effect = aquarium
+# effect_palette = lagoon
+# effect_level = 60
+
 background_effect = aurora
 effect_palette = ocean, aurora, neon     # rotates, cross-fading
 effect_palette_interval = 90
@@ -380,9 +416,9 @@ spectrum at the bottom. When the music stops the normal screen/layout comes back
   - `solid` — one flat color of your choice, `music_bg_color` (`#RRGGBB`, `R,G,B`
     or a name), the same for every track.
   - `none` — keep whatever is behind (solid color, your `background` image or the
-    [background effect](#animated-background-effect-plasma-aurora-lava-waves));
+    [background effect](#animated-background-effect-plasma-aurora-lava-waves-matrix-rain-aquarium));
     the cover and text are drawn on top.
-  - `effect` — the animated background effect (plasma, aurora, lava or waves, with
+  - `effect` — the animated background effect (plasma, aurora, lava, waves, matrix, rain or aquarium, with
     the style, palette, speed and size you set in its section; plasma if you set none),
     drawn just for this screen. `music_bg_brightness` is its brightness.
 
@@ -774,12 +810,11 @@ background = C:\Pictures\bg.jpg
 
 Names (`trofeo_lcd.exe --layout list` prints these with descriptions):
 `default, default2, cpu-gpu, temps, overview, grid6, clock-center, io, music,
-gaming, cpu, gpu, tiles, weather, news`.
+gaming, cpu, gpu, weather, news`.
 
 - `default` = the standard screen (status lines, spectrum, big clock).
 - `default2` = the standard screen with [per-item](#per-item-control) styling.
 - `news` = the [ticker](#ticker)'s headlines, big and scrolling, full screen.
-- `tiles` = rounded glass [tiles](#tiles-layout) you choose yourself, with bars or rings.
 - Everything else replaces the clock with big panel(s); the top status block
   and spectrum turn off (use `show = nowplaying, time` etc. to add lines back
   on top of a panel layout; the game dashboard stays on regardless — turn it
@@ -814,102 +849,6 @@ layout_interval = 40
 # Rotate the classic screen with the custom per-item one:
 layout = default, default2
 layout_interval = 20
-```
-
-## Tiles layout
-
-`layout = tiles` replaces the clock with rounded, semi-transparent **tiles**: a big value,
-a small label, an optional second value and a progress bar or a ring. It adapts to
-1920×462, 1920×400 and portrait, and can rotate with other layouts
-(`layout = tiles:30, weather:5`). The other layouts' keys still apply where they make
-sense (`language`, `percent_decimals`, `mem_unit`, `weather_unit`, `margin_*`, `brightness`).
-
-| Key | CLI | Values | Default |
-|---|---|---|---|
-| `tiles` | `--tiles` | list of tiles, `\|` starts a new row, see below | `clock:tall, cpu_temp, gpu_temp \| ram:ring, cpu:ring, gpu:ring` |
-| `tiles_font` | `--tiles-font` | `smooth` (anti-aliased) or `pixel` (the classic font) | `smooth` |
-| `tiles_theme` | `--tiles-theme` | `dark`, `light` | `dark` |
-| `tiles_color` | `--tiles-color` | tile fill color | from the theme |
-| `tiles_opacity` | `--tiles-opacity` | `0`-`100` (how see-through the tiles are) | `66` dark / `52` light |
-| `tiles_text_color` | `--tiles-text-color` | main text color | from the theme |
-| `tiles_radius` | `--tiles-radius` | `0`-`80` px (corner roundness) | automatic |
-| `tiles_gap` | `--tiles-gap` | `0`-`60` px between tiles and from the edge | `14` |
-| `tiles_bar_color` | `--tiles-bar-color` | `auto`, one color, or several colors (a gradient) | `auto` |
-| `tile_<name>_color` | `--tile-<name>-color` | same, for one tile only (wins over `tiles_bar_color`) | — |
-| `tiles_bg` | `--tiles-bg` | `global`, `color`, `gradient`, `effect`, `image` | `global` |
-| `tiles_bg_color` | `--tiles-bg-color` | one color (`color`) or two-three colors (`gradient`) | dark blue to plum |
-| `tiles_bg_image` | `--tiles-bg-image` | picture / GIF / video for `tiles_bg = image` | — |
-| `tiles_bg_dim` | `--tiles-bg-dim` | `0`-`100`: darkens the effect / image | `0` |
-| `tiles_clock_seconds` | `--tiles-clock-seconds` | `true`/`false` | `false` |
-| `tiles_cpu_watt_max`, `tiles_gpu_watt_max` | | watts at which a bar/ring is full | `200`, `400` |
-| `tiles_fps_max` | | FPS at which a bar/ring is full | `240` |
-
-**Choosing the tiles.** `tiles` is a comma-separated list; each entry is a name and,
-optionally, `:ring` (a ring instead of a bar), `:bar`, and — for the *first* tile only —
-`:tall` (it spans every row, like the clock in the picture). A `|` starts a new row; with
-no `|` everything is one row. At most 16 tiles. In portrait the tiles are stacked in
-one column (two when there are more than six) and `|`/`:tall` are ignored.
-
-| Tile | Shows | Bar / ring |
-|---|---|---|
-| `clock` | time, weekday and date | — |
-| `cpu` | CPU load (and frequency) | load |
-| `cpu_temp` | CPU temperature (and load) | temperature (100 °C = full) |
-| `cpu_watt` | CPU power | `tiles_cpu_watt_max` |
-| `gpu`, `gpu_temp`, `gpu_watt` | the same for the GPU | |
-| `ram` | memory use (`mem_unit` applies) | use |
-| `net` | download speed (and upload) | — |
-| `disk` | read speed (and write) | — |
-| `fps` | FPS of the game (and frame time) | `tiles_fps_max` |
-| `weather` | temperature, icon, city and condition | — |
-| `music` | the playing title (cut with "..." when long) | — |
-
-A tile without a value (for instance `cpu_watt` when the CPU does not report power)
-shows `--`. A ring on a tile that has no bar value (`net`, `disk`, `clock`...) is
-drawn as a plain tile.
-
-**Colors of the bars and rings.** `auto` colors them green → yellow → red by level (or
-with your `color`). A single color is solid; two or more form a gradient along the
-bar or around the ring. `tile_<name>_color` (`tile_cpu_color`, `tile_gpu_temp_color`,
-`tile_ram_color`, `tile_cpu_watt_color` ...) overrides `tiles_bar_color` for that one
-tile; `tile_ram_color = auto` brings a single tile back to level colors:
-
-```ini
-tiles_bar_color = #00C8FF, #FF0080     # everything: cyan to pink
-tile_gpu_color = #FFC800               # but the GPU tile in amber
-tile_ram_color = auto                  # and RAM by level
-```
-
-**Font.** `smooth` draws anti-aliased text in mixed case (Poppins, embedded in the
-program); `pixel` uses the same blocky capitals as the rest of the program. Both fit the
-same tiles; pixel text shows `C` instead of `°`.
-
-**Background.**
-
-- `global` (default): the tiles sit over whatever the other screens use —
-  `background` (image/video), `background_effect`, or the plain dark color.
-- `color`: `tiles_bg_color = #1B2A4A`.
-- `gradient`: `tiles_bg_color = #1B2A4A, #4A1B3A` (two or three colors, diagonal).
-- `effect`: the animated effect of [Animated background effect](#animated-background-effect-plasma-aurora-lava-waves)
-  (`background_effect` picks the style, `effect_palette`/`effect_speed`/... the look; plasma
-  if none is set), only behind the tiles.
-- `image`: `tiles_bg_image = C:\Pictures\glass.jpg` (JPEG, PNG, BMP, GIF; videos need ffmpeg,
-  as for `background`); `tiles_bg_dim` darkens it.
-
-For the "glass" look of a light picture use `tiles_theme = light` and a lower
-`tiles_opacity`. The cost is small: the tiles are drawn on a transparent layer that is
-only redrawn when a value, the time or a setting changes (about once a second); every
-other frame just lays it over the background. An animated `effect`/`image` background
-makes the screen refresh at `effect_fps` / the active fps instead of the idle fps.
-
-```ini
-layout = tiles
-tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring
-tiles_theme = light
-tiles_opacity = 45
-tiles_bg = gradient
-tiles_bg_color = #9FC5E8, #D9B8F0
-tiles_bar_color = #4B7BEC, #8E44AD
 ```
 
 ## Screenshot hotkey — command-line only *(restart required)*
@@ -996,7 +935,6 @@ trofeo_lcd.exe --idle-fps 1 --active-fps 20
 ```ini
 # --- Look & feel ---
 orientation = landscape
-# panel = trofeo-11.3          # only if the 11.3" panel is not recognised by itself
 language = en
 text_color = #FFFFFF
 clock_color = #00C8FF

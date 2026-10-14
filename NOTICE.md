@@ -55,13 +55,13 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
   (pastel to fluorescent) or your own, adjustable speed, size and brightness, and a
   very low CPU cost (a coarse field stretched through a color table); also available
   behind the music screen.
-- Added the **tiles layout** (`layout = tiles`): rounded glass tiles with bars and rings, a
-  choice of tiles, bar colors (general and per tile), backgrounds, and an optional
-  anti-aliased font (`tiles_font = smooth`). The smooth font is a Latin subset of
-  [Poppins](https://github.com/itfoundry/Poppins) (Copyright 2020 The Poppins Project
-  Authors), used under the SIL Open Font License 1.1 — see `assets/OFL.txt`.
-- Added support for the **Trofeo Vision 11.3"** panel (1920×400; same USB ID and
-  protocol as the 9.16", recognised automatically or via `panel` / `panel_size`).
+- Added a **solid background color** (`background_color`, a name such as `black`,
+  `white`, `pink` or a hex code) and two minimal animated **digital rain** backgrounds
+  (`matrix`, `rain`) with green, amber, violet, crimson and white presets; the list of
+  color names understood by every color option was extended.
+- Added an **aquarium** background (`background_effect = aquarium`): a side view of
+  the water with a moving, clearly visible surface, light rays, caustics and bubbles; the
+  water level is adjustable (`effect_level`) and there are three water color presets.
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
   (lossless PNG), a **console-hide** option, and an adaptive idle/active FPS
   system.

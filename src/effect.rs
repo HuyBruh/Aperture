@@ -1,4 +1,5 @@
-//! Animated background effects (plasma, aurora, lava, waves) that cost almost no CPU.
+//! Animated background effects (plasma, aurora, lava, waves, the "digital rain" styles
+//! matrix and rain, and the aquarium cross-section) that cost almost no CPU.
 //!
 //! How it stays cheap:
 //!
@@ -24,6 +25,10 @@ pub type Rgb = (u8, u8, u8);
 const CELL: usize = 12;
 /// Colour table size (a power of two: the lookup wraps with a mask).
 const LUT_N: usize = 1024;
+/// Colours a rain palette is sampled at.
+const RAIN_N: usize = 256;
+/// Entries of the aquarium's depth -> colour table.
+const WATER_N: usize = 256;
 /// Fractional bits of the field values (in units of one LUT entry).
 const FRAC: u32 = 8;
 /// Extra fractional bits kept while stepping along a row.
@@ -47,12 +52,19 @@ pub enum Style {
     Lava,
     /// Smooth diagonal ripples, like silk.
     Waves,
+    /// Sparse columns of falling characters with fading trails ("digital rain").
+    Matrix,
+    /// The same rain, minimal: thin falling streaks, no characters.
+    Rain,
+    /// A side view of an aquarium: a moving water surface, light rays, caustics, bubbles.
+    Aquarium,
 }
 
 impl Style {
-    pub const NAMES: &'static str = "plasma | aurora | lava | waves";
+    pub const NAMES: &'static str = "plasma | aurora | lava | waves | matrix | rain | aquarium";
     #[cfg(test)]
-    pub const ALL: [Style; 4] = [Style::Plasma, Style::Aurora, Style::Lava, Style::Waves];
+    pub const ALL: [Style; 7] =
+        [Style::Plasma, Style::Aurora, Style::Lava, Style::Waves, Style::Matrix, Style::Rain, Style::Aquarium];
 
     pub fn parse(s: &str) -> Option<Style> {
         match s.trim().to_ascii_lowercase().as_str() {
@@ -60,6 +72,9 @@ impl Style {
             "aurora" | "curtains" | "tende" => Some(Style::Aurora),
             "lava" | "blobs" | "lavalamp" => Some(Style::Lava),
             "waves" | "silk" | "onde" | "seta" => Some(Style::Waves),
+            "matrix" | "digital" | "code" | "codice" => Some(Style::Matrix),
+            "rain" | "streaks" | "pioggia" | "minimal" => Some(Style::Rain),
+            "aquarium" | "acquario" | "water" | "acqua" | "tank" => Some(Style::Aquarium),
             _ => None,
         }
     }
@@ -98,9 +113,20 @@ const FIRE: [Rgb; 5] = [
 const FOREST: [Rgb; 4] = [(0x00, 0x30, 0x18), (0x10, 0x80, 0x40), (0x90, 0xD0, 0x50), (0x00, 0x50, 0x40)];
 const ICE: [Rgb; 4] = [(0x30, 0x50, 0xB0), (0x70, 0xB0, 0xFF), (0xD0, 0xF4, 0xFF), (0x60, 0x90, 0xE0)];
 const MONO: [Rgb; 3] = [(0x20, 0x24, 0x30), (0xB8, 0xC0, 0xD0), (0x50, 0x58, 0x68)];
+// One-colour palettes, made for the rain styles (matrix, rain). In the smooth styles they
+// turn into a dark -> colour -> light gradient of that colour.
+const MATRIX: [Rgb; 1] = [(0x00, 0xFF, 0x41)];
+const AMBER: [Rgb; 1] = [(0xFF, 0xB0, 0x00)];
+const VIOLET: [Rgb; 1] = [(0xB0, 0x60, 0xFF)];
+const CRIMSON: [Rgb; 1] = [(0xFF, 0x30, 0x40)];
+const SNOW: [Rgb; 1] = [(0xE6, 0xEB, 0xF0)];
+// Water palettes, made for the aquarium (the lightest colour is the surface, the darkest the depths).
+const LAGOON: [Rgb; 3] = [(0x7F, 0xF0, 0xE6), (0x10, 0xA8, 0xB8), (0x04, 0x4A, 0x6A)];
+const DEEP: [Rgb; 3] = [(0x4A, 0x90, 0xE0), (0x10, 0x40, 0x90), (0x02, 0x0C, 0x30)];
+const TROPICAL: [Rgb; 4] = [(0x8A, 0xFF, 0xC8), (0x20, 0xC0, 0xA0), (0x00, 0x70, 0x80), (0x00, 0x30, 0x50)];
 
 /// Names of the built-in presets, in the order `all` / `rotate` goes through them.
-const PRESETS: [(&str, &[Rgb]); 12] = [
+const PRESETS: [(&str, &[Rgb]); 20] = [
     ("pastel", &PASTEL),
     ("fluo", &FLUO),
     ("neon", &NEON),
@@ -113,7 +139,17 @@ const PRESETS: [(&str, &[Rgb]); 12] = [
     ("ice", &ICE),
     ("mono", &MONO),
     ("rainbow", &[]), // generated (full hue circle)
+    ("matrix", &MATRIX),
+    ("amber", &AMBER),
+    ("violet", &VIOLET),
+    ("crimson", &CRIMSON),
+    ("snow", &SNOW),
+    ("lagoon", &LAGOON),
+    ("deep", &DEEP),
+    ("tropical", &TROPICAL),
 ];
+/// How many of the presets are multi-colour (what `all` / `rotate` goes through).
+const MULTI_COLOUR_PRESETS: usize = 12;
 
 /// The full hue circle as a looping palette.
 fn rainbow_stops() -> Vec<Rgb> {
@@ -142,7 +178,7 @@ fn hsv(h: f32, s: f32, v: f32) -> Rgb {
 
 impl Palette {
     pub const NAMES: &'static str =
-        "pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow";
+        "pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow | matrix | amber | violet | crimson | snow | lagoon | deep | tropical";
 
     pub fn custom(stops: Vec<Rgb>) -> Palette {
         Palette { stops }
@@ -162,6 +198,14 @@ impl Palette {
             "ice" | "ghiaccio" => "ice",
             "mono" | "grey" | "gray" | "grigio" => "mono",
             "rainbow" | "arcobaleno" => "rainbow",
+            "matrix" | "green" | "verde" => "matrix",
+            "amber" | "ambra" => "amber",
+            "violet" | "viola" | "purple" => "violet",
+            "crimson" | "red" | "rosso" => "crimson",
+            "snow" | "white" | "bianco" => "snow",
+            "lagoon" | "laguna" => "lagoon",
+            "deep" | "profondo" | "abyss" => "deep",
+            "tropical" | "tropicale" => "tropical",
             _ => return None,
         };
         PRESETS.iter().find(|(name, _)| *name == n).map(|(_, stops)| Palette {
@@ -173,15 +217,55 @@ impl Palette {
     pub fn presets() -> Vec<Palette> {
         PRESETS
             .iter()
+            .take(MULTI_COLOUR_PRESETS)
             .map(|(_, stops)| Palette { stops: if stops.is_empty() { rainbow_stops() } else { stops.to_vec() } })
             .collect()
+    }
+
+    /// Colour of one falling column of the rain styles: the one colour of a single-colour
+    /// palette, or a spot on the loop of a multi-colour one.
+    fn pick(&self, u: f32) -> Rgb {
+        if self.stops.len() == 1 {
+            self.stops[0]
+        } else {
+            self.at(u)
+        }
+    }
+
+    /// Colour of the water at depth `u` (0 = surface, 1 = bottom): the palette's colours
+    /// ordered from the lightest to the darkest, whatever order they were written in. A
+    /// single colour becomes a light -> dark gradient of itself.
+    fn depth_stops(&self) -> Vec<Rgb> {
+        let mut st = self.stops.clone();
+        match st.len() {
+            0 => return vec![(0, 0, 0), (0, 0, 0)],
+            1 => {
+                let c = st[0];
+                st = vec![lerp_rgb(c, (255, 255, 255), 0.35), c, dim(c, 0.25)];
+            }
+            _ => {}
+        }
+        let luma = |c: &Rgb| c.0 as u32 * 299 + c.1 as u32 * 587 + c.2 as u32 * 114;
+        st.sort_by_key(|c| std::cmp::Reverse(luma(c)));
+        st
     }
 
     /// Colour at `u` (0-1) of the closed loop.
     fn at(&self, u: f32) -> Rgb {
         match self.stops.len() {
             0 => (0, 0, 0),
-            1 => self.stops[0],
+            1 => {
+                // dark -> colour -> light -> back, so a single colour still has some depth
+                let c = self.stops[0];
+                let t = u.rem_euclid(1.0);
+                let tri = 1.0 - (t * 2.0 - 1.0).abs(); // 0 .. 1 .. 0
+                let light = lerp_rgb(c, (255, 255, 255), 0.45);
+                if tri < 0.5 {
+                    lerp_rgb(dim(c, 0.25), c, tri * 2.0)
+                } else {
+                    lerp_rgb(c, light, (tri - 0.5) * 2.0)
+                }
+            }
             n => {
                 let x = u.rem_euclid(1.0) * n as f32;
                 let i = (x.floor() as usize).min(n - 1);
@@ -209,6 +293,14 @@ fn dim(c: Rgb, k: f32) -> Rgb {
     (ch(r), ch(g), ch(b))
 }
 
+/// Colour at `u` (0-1) along an open gradient (at least two stops).
+fn along(stops: &[Rgb], u: f32) -> Rgb {
+    let n = stops.len();
+    let x = u.clamp(0.0, 1.0) * (n - 1) as f32;
+    let i = (x.floor() as usize).min(n - 2);
+    lerp_rgb(stops[i], stops[i + 1], x - i as f32)
+}
+
 fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
     (l(a.0, b.0), l(a.1, b.1), l(a.2, b.2))
@@ -234,6 +326,8 @@ pub struct Settings {
     pub brightness: u32,
     /// Frames per second the effect is refreshed at while nothing else needs more.
     pub fps: u32,
+    /// Aquarium only: how high the water reaches, in % of the panel (0 = empty, 100 = full).
+    pub level: u32,
 }
 
 impl Default for Settings {
@@ -246,6 +340,7 @@ impl Default for Settings {
             scale: 100,
             brightness: 40,
             fps: 8,
+            level: 50,
         }
     }
 }
@@ -282,6 +377,12 @@ struct LutKey {
 pub struct Effect {
     start: std::time::Instant,
     lut: Vec<[u8; 3]>,
+    /// Colours of the rain columns (one per 1/RAIN_N of the palette loop), brightness applied.
+    rain_lut: Vec<[u8; 3]>,
+    /// Colours of the aquarium's water from the surface (0) to the bottom, brightness applied.
+    water_lut: Vec<[u8; 3]>,
+    /// Brightness (0-1) the colour tables were built for.
+    bright: f32,
     lut_key: Option<LutKey>,
     /// Field samples (fixed point, in LUT entries), `cols * rows`.
     cells: Vec<i32>,
@@ -300,6 +401,9 @@ impl Effect {
         Effect {
             start: std::time::Instant::now(),
             lut: vec![[0; 3]; LUT_N],
+            rain_lut: vec![[0; 3]; RAIN_N],
+            water_lut: vec![[0; 3]; WATER_N],
+            bright: 0.4,
             lut_key: None,
             cells: Vec::new(),
             cols: 0,
@@ -324,6 +428,16 @@ impl Effect {
             return;
         }
         self.update_lut(s, brightness, secs);
+        if style == Style::Aquarium {
+            let t = secs * (s.speed as f64 / 30.0);
+            self.paint_aquarium(fb, s.level, s.scale, t);
+            return;
+        }
+        if matches!(style, Style::Matrix | Style::Rain) {
+            let t = secs * (s.speed as f64 / 30.0);
+            self.paint_rain(fb, style, s.scale, t);
+            return;
+        }
         self.update_grid(w, h, s.scale);
         // Time that drives the motion: speed 100 is ~3x the default (30).
         let t = secs * (s.speed as f64 / 30.0);
@@ -355,7 +469,23 @@ impl Effect {
             return;
         }
         let k = brightness.min(100) as f32 / 100.0;
+        self.bright = k;
         let fade = fq as f32 / 64.0;
+        for (i, e) in self.rain_lut.iter_mut().enumerate() {
+            let u = i as f32 / RAIN_N as f32;
+            let ca = s.palettes[a].pick(u);
+            let c = if a == b { ca } else { lerp_rgb(ca, s.palettes[b].pick(u), fade) };
+            let d = dim(c, k);
+            *e = [d.0, d.1, d.2];
+        }
+        let (sa, sb) = (s.palettes[a].depth_stops(), s.palettes[b].depth_stops());
+        for (i, e) in self.water_lut.iter_mut().enumerate() {
+            let u = i as f32 / (WATER_N - 1) as f32;
+            let ca = along(&sa, u);
+            let c = if a == b { ca } else { lerp_rgb(ca, along(&sb, u), fade) };
+            let d = dim(c, k);
+            *e = [d.0, d.1, d.2];
+        }
         for (i, e) in self.lut.iter_mut().enumerate() {
             let u = i as f32 / LUT_N as f32;
             let ca = s.palettes[a].at(u);
@@ -451,6 +581,8 @@ impl Effect {
                     }
                 }
             }
+            // The rain styles are not a smooth field: `render_at` paints them directly.
+            Style::Matrix | Style::Rain | Style::Aquarium => {}
             Style::Waves => {
                 let (p1, p2, p3) = (ph(0.21), ph(0.15), ph(0.25));
                 for r in 0..rows {
@@ -498,6 +630,318 @@ impl Effect {
                     v += dv;
                 }
                 x += run;
+            }
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Digital rain (matrix, rain)
+// ---------------------------------------------------------------------------
+
+/// Characters of the `matrix` style (all exist in the 5x7 font).
+const RAIN_CHARS: &str = "0123456789ABCDEFHKLMNPRSTUXYZ:-/";
+/// Share of the columns that have a drop at all (the rest stay empty: minimal).
+const RAIN_DENSITY: f32 = 0.55;
+
+fn mix(a: u64, b: u64) -> u64 {
+    // splitmix64-style finaliser over two numbers: cheap, stateless randomness.
+    let mut x = a.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ b.wrapping_mul(0xBF58_476D_1CE4_E5B9) ^ 0x94D0_49BB_1331_11EB;
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
+}
+
+/// Uniform 0..1 from a hash.
+fn unit(h: u64) -> f32 {
+    (h >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// One falling drop of a column: where its head is (in cells/pixels along the fall) and how
+/// long its trail is, at time `t`; `None` while the column is between two drops.
+struct Drop {
+    head: f32,
+    len: f32,
+    epoch: u64,
+}
+
+/// The drop of column `col` at time `t` (all quantities in `unit`s: cells for matrix, pixels
+/// for rain). `travel` is the length of the screen in those units.
+fn drop_of(col: u64, t: f64, travel: f32, speed: f32, len_lo: f32, len_hi: f32) -> Option<Drop> {
+    if unit(mix(col, 2)) > RAIN_DENSITY {
+        return None;
+    }
+    let speed_c = speed * (0.6 + 0.9 * unit(mix(col, 3)));
+    let len = len_lo + (len_hi - len_lo) * unit(mix(col, 4));
+    let gap = unit(mix(col, 5)) * travel * 1.3;
+    let period = travel + len + gap;
+    let pos = t as f32 * speed_c + unit(mix(col, 6)) * period;
+    let epoch = (pos / period).floor();
+    let head = pos - epoch * period;
+    (head <= travel + len).then_some(Drop { head, len, epoch: epoch as u64 })
+}
+
+impl Effect {
+    /// Paint the rain over all of `fb`: black with a trace of the palette's colour, and drops
+    /// whose colour comes from the palette (`rain_lut`). Stateless: a pure function of `t`.
+    fn paint_rain(&mut self, fb: &mut Framebuffer, style: Style, scale: u32, t: f64) {
+        let (w, h) = (fb.width() as i32, fb.height() as i32);
+        let base = self.rain_lut[0];
+        let ground = [base[0] / 14, base[1] / 14, base[2] / 14];
+        for px in fb.as_bytes_mut().chunks_exact_mut(3) {
+            px.copy_from_slice(&ground);
+        }
+        let g = ((2.0 * scale.clamp(25, 400) as f32 / 100.0).round() as i32).clamp(1, 8);
+        match style {
+            Style::Matrix => self.paint_matrix(fb, w, h, g, t),
+            _ => self.paint_streaks(fb, w, h, g, t),
+        }
+    }
+
+    fn paint_matrix(&mut self, fb: &mut Framebuffer, w: i32, h: i32, g: i32, t: f64) {
+        let (cw, ch) = (8 * g, 10 * g);
+        let (cols, rows) = (w / cw + 1, h / ch + 1);
+        let chars: Vec<char> = RAIN_CHARS.chars().collect();
+        let white = (255.0 * self.bright) as u32;
+        for col in 0..cols {
+            let Some(d) = drop_of(col as u64, t, rows as f32, 5.0, 5.0, 17.0) else { continue };
+            let c = self.rain_lut[(unit(mix(col as u64, 7)) * RAIN_N as f32) as usize % RAIN_N];
+            let head_row = d.head.floor() as i32;
+            let flicker = (t * 9.0).floor() as u64;
+            for k in 0..d.len.ceil() as i32 {
+                let row = head_row - k;
+                if row < 0 || row >= rows {
+                    continue;
+                }
+                let i = (1.0 - k as f32 / d.len).clamp(0.0, 1.0);
+                let i = i * i;
+                if i < 0.04 {
+                    continue;
+                }
+                let seed = mix(col as u64 * 7919 + row as u64, if k == 0 { flicker } else { d.epoch });
+                let glyph = trofeo_lcd::font::glyph(chars[(seed % chars.len() as u64) as usize]);
+                // the head is the brightest, a little whiter; the tail fades into the colour
+                let rgb = if k == 0 {
+                    head_colour(c, white)
+                } else {
+                    [(c[0] as f32 * i) as u8, (c[1] as f32 * i) as u8, (c[2] as f32 * i) as u8]
+                };
+                let (x0, y0) = (col * cw + g, row * ch + g);
+                for (ry, bits) in glyph.iter().enumerate() {
+                    for cx in 0..5 {
+                        if (bits >> (4 - cx)) & 1 == 1 {
+                            fill(fb, x0 + cx * g, y0 + ry as i32 * g, g, g, rgb);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn paint_streaks(&mut self, fb: &mut Framebuffer, w: i32, h: i32, g: i32, t: f64) {
+        let spacing = 10 * g;
+        let cols = w / spacing + 1;
+        let width = g.max(1);
+        let white = (255.0 * self.bright) as u32;
+        for col in 0..cols {
+            let Some(d) = drop_of(col as u64, t, h as f32, 60.0 * g as f32, 70.0 * g as f32, 210.0 * g as f32) else { continue };
+            let c = self.rain_lut[(unit(mix(col as u64, 7)) * RAIN_N as f32) as usize % RAIN_N];
+            let x = col * spacing + (spacing - width) / 2;
+            let head = d.head as i32;
+            for k in 0..d.len as i32 {
+                let y = head - k;
+                if y < 0 || y >= h {
+                    continue;
+                }
+                let i = (1.0 - k as f32 / d.len).clamp(0.0, 1.0).powf(1.6);
+                let rgb = if k < width {
+                    head_colour(c, white)
+                } else {
+                    [(c[0] as f32 * i) as u8, (c[1] as f32 * i) as u8, (c[2] as f32 * i) as u8]
+                };
+                fill(fb, x, y, width, 1, rgb);
+            }
+        }
+    }
+}
+
+/// The brightest point of a drop: its colour, half way to white (at the effect's brightness).
+fn head_colour(c: [u8; 3], white: u32) -> [u8; 3] {
+    let f = |v: u8| (v as u32 + white.saturating_sub(v as u32) / 2) as u8;
+    [f(c[0]), f(c[1]), f(c[2])]
+}
+
+/// Fills a rectangle (clipped to the framebuffer).
+fn fill(fb: &mut Framebuffer, x: i32, y: i32, w: i32, h: i32, rgb: [u8; 3]) {
+    let (fw, fh) = (fb.width() as i32, fb.height() as i32);
+    let (x0, x1) = (x.max(0), (x + w).min(fw));
+    let (y0, y1) = (y.max(0), (y + h).min(fh));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let px = fb.as_bytes_mut();
+    for yy in y0..y1 {
+        for p in px[((yy * fw + x0) * 3) as usize..((yy * fw + x1) * 3) as usize].chunks_exact_mut(3) {
+            p.copy_from_slice(&rgb);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Aquarium (a side view of the water)
+// ---------------------------------------------------------------------------
+
+/// Height of the water surface at column `x`: a few slow waves added together, all
+/// measured from the resting level `y0`.
+fn surface_at(x: f32, y0: f32, amp: f32, g: f32, t: f32) -> f32 {
+    let (l1, l2, l3) = (110.0 * g, 61.0 * g, 33.0 * g);
+    y0 + amp * (0.55 * (x / l1 + 0.9 * t).sin() + 0.30 * (x / l2 - 1.3 * t + 1.7).sin() + 0.15 * (x / l3 + 2.1 * t + 4.0).sin())
+}
+
+/// Number of bubbles for a panel `w` pixels wide.
+fn bubble_count(w: usize, g: f32) -> u64 {
+    ((w as f32 / (150.0 * g.clamp(0.5, 3.0))) as u64).clamp(3, 40)
+}
+
+impl Effect {
+    /// A cross-section of an aquarium: air above, water below, with a clearly visible moving
+    /// surface. Under it the colour darkens with depth, soft rays of light slant down from
+    /// the surface, a net of caustics ripples near the top, and a few bubbles rise.
+    /// Stateless: a pure function of `t`.
+    fn paint_aquarium(&mut self, fb: &mut Framebuffer, level: u32, scale: u32, t: f64) {
+        let (w, h) = (fb.width() as usize, fb.height() as usize);
+        let g = scale.clamp(25, 400) as f32 / 100.0;
+        let tf = (t % 100_000.0) as f32;
+        let amp = (w.min(h) as f32 * 0.045) * g.sqrt();
+        let y0 = h as f32 * (1.0 - level.min(100) as f32 / 100.0);
+        let wl = &self.water_lut;
+        let air = wl[WATER_N - 1];
+        let air = [air[0] / 2, air[1] / 2, air[2] / 2];
+        let px = fb.as_bytes_mut();
+        if level == 0 {
+            for p in px.chunks_exact_mut(3) {
+                p.copy_from_slice(&air);
+            }
+            return;
+        }
+        let surf: Vec<f32> = (0..w).map(|x| surface_at(x as f32 + 0.5, y0, amp, g, tf)).collect();
+        // 1-D patterns that are read along slanted lines: two crossing ridge patterns make the
+        // caustics' net, a wide soft one makes the rays. Indexed by x plus a per-row offset.
+        let (n_rays, n_c1, n_c2) = (w + h * 3 / 10 + 2, w + h * 45 / 100 + 2, w + h * 7 / 10 + 2);
+        let rays: Vec<u8> = (0..n_rays)
+            .map(|u| {
+                let u = u as f32;
+                let a = 0.5 + 0.25 * (u / (60.0 * g) + 0.5 * tf).sin() + 0.25 * (u / (143.0 * g) - 0.3 * tf + 2.0).sin();
+                let v = ((a - 0.52) / 0.48).clamp(0.0, 1.0);
+                (v * v * 255.0) as u8
+            })
+            .collect();
+        let ridge = |u: f32, period: f32, phase: f32| {
+            let v = 1.0 - (u / period + phase).sin().abs();
+            (v * v * v * 255.0) as u8
+        };
+        let c1: Vec<u8> = (0..n_c1).map(|u| ridge(u as f32, 17.0 * g, 0.9 * tf)).collect();
+        let c2: Vec<u8> = (0..n_c2).map(|u| ridge(u as f32, 23.0 * g, -0.7 * tf + 1.3)).collect();
+        // how much light reaches each depth
+        let fade: Vec<u32> = (0..WATER_N)
+            .map(|i| {
+                let d = 1.0 - i as f32 / (WATER_N - 1) as f32;
+                (255.0 * d * d) as u32
+            })
+            .collect();
+        let span = (h as f32 - y0 + amp).max(1.0);
+        let inv = (WATER_N - 1) as f32 / span;
+        let top = wl[0];
+        let light = [top[0] as i32, top[1] as i32, top[2] as i32];
+        // the line on the surface stays clearly visible even when the water is dimmed
+        let white = (255.0 * self.bright.sqrt()) as u32;
+        let line = {
+            let f = |v: u8| (v as u32 + white.saturating_sub(v as u32) * 3 / 5).min(255) as i32;
+            [f(top[0]), f(top[1]), f(top[2])]
+        };
+        let air_i = [air[0] as i32, air[1] as i32, air[2] as i32];
+        for y in 0..h {
+            let yf = y as f32 + 0.5;
+            let (o_ray, o_c1, o_c2) = (y * 3 / 10, y * 45 / 100, (h - y) * 7 / 10);
+            let row = &mut px[y * w * 3..(y + 1) * w * 3];
+            for (x, p) in row.chunks_exact_mut(3).enumerate() {
+                let dy = yf - surf[x];
+                if dy < -1.7 {
+                    p.copy_from_slice(&air);
+                    continue;
+                }
+                let idx = ((dy.max(0.0) * inv) as usize).min(WATER_N - 1);
+                let b = wl[idx];
+                let mut c = [b[0] as i32, b[1] as i32, b[2] as i32];
+                // light: caustics (crossing ridges) + rays, weaker with depth
+                let caustic = (c1[x + o_c1] as u32 * c2[x + o_c2] as u32) >> 8;
+                let l = ((caustic * 140 + rays[x + o_ray] as u32 * 100) >> 8) * fade[idx] >> 8;
+                let l = l.min(255) as i32;
+                for k in 0..3 {
+                    c[k] += (light[k] - c[k]) * l >> 8;
+                }
+                if dy < 10.0 {
+                    // a glow just under the surface, the water's edge and the bright line on it
+                    let glow = ((1.0 - dy.max(0.0) / 10.0).powi(2) * 90.0) as i32;
+                    let cov = ((dy + 0.5).clamp(0.0, 1.0) * 256.0) as i32;
+                    let ln = ((1.0 - dy.abs() / 1.7).clamp(0.0, 1.0) * 256.0) as i32;
+                    for k in 0..3 {
+                        c[k] += (line[k] - c[k]) * glow >> 8;
+                        c[k] = air_i[k] + ((c[k] - air_i[k]) * cov >> 8);
+                        c[k] += (line[k] - c[k]) * ln >> 8;
+                    }
+                }
+                p[0] = c[0].clamp(0, 255) as u8;
+                p[1] = c[1].clamp(0, 255) as u8;
+                p[2] = c[2].clamp(0, 255) as u8;
+            }
+        }
+        self.paint_bubbles(fb, y0, amp, g, tf, line);
+    }
+
+    fn paint_bubbles(&mut self, fb: &mut Framebuffer, y0: f32, amp: f32, g: f32, t: f32, tint: [i32; 3]) {
+        let (w, h) = (fb.width() as i32, fb.height() as i32);
+        let gb = g.clamp(0.5, 3.0);
+        let travel = (h as f32 - y0).max(1.0);
+        let px = fb.as_bytes_mut();
+        for i in 0..bubble_count(w as usize, g) {
+            let r = (2.0 + 3.0 * unit(mix(i, 12))) * gb;
+            let speed = (26.0 + 34.0 * unit(mix(i, 13))) * gb;
+            let gap = unit(mix(i, 15)) * travel * 0.8;
+            let period = travel + 2.0 * r + gap;
+            let pos = (t * speed + unit(mix(i, 14)) * period) % period;
+            if pos > travel + r {
+                continue; // between two bubbles
+            }
+            let cy = h as f32 + r - pos;
+            let cx = unit(mix(i, 11)) * w as f32 + 5.0 * gb * (pos * 0.045 + i as f32).sin();
+            let ys = surface_at(cx, y0, amp, g, t);
+            let alpha = ((cy - r - ys) / 24.0).clamp(0.0, 1.0);
+            if alpha <= 0.0 {
+                continue;
+            }
+            let (x0, x1) = ((cx - r - 2.0).floor().max(0.0) as i32, ((cx + r + 2.0).ceil() as i32).min(w - 1));
+            let (y_0, y_1) = ((cy - r - 2.0).floor().max(0.0) as i32, ((cy + r + 2.0).ceil() as i32).min(h - 1));
+            for yy in y_0..=y_1 {
+                for xx in x0..=x1 {
+                    let (dx, dy) = (xx as f32 + 0.5 - cx, yy as f32 + 0.5 - cy);
+                    let d = (dx * dx + dy * dy).sqrt();
+                    let ring = (1.0 - (d - r).abs() / 1.1).clamp(0.0, 1.0);
+                    let body = if d < r { 0.10 } else { 0.0 };
+                    let shine = (1.0 - ((dx + 0.4 * r).powi(2) + (dy + 0.4 * r).powi(2)).sqrt() / (0.35 * r + 0.8)).clamp(0.0, 1.0);
+                    let a = ((ring * 0.65 + body + shine * 0.5) * alpha).min(1.0);
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    let o = ((yy * w + xx) * 3) as usize;
+                    for k in 0..3 {
+                        let v = px[o + k] as f32;
+                        px[o + k] = (v + (tint[k] as f32 - v) * a) as u8;
+                    }
+                }
             }
         }
     }
@@ -757,6 +1201,9 @@ mod tests {
         // unless the palette itself does: with a smooth palette the biggest
         // horizontal step stays small.
         for style in Style::ALL {
+            if matches!(style, Style::Matrix | Style::Rain | Style::Aquarium) {
+                continue; // glyphs, streaks and the water surface have hard edges by design
+            }
             let s = settings(style, "ocean");
             let mut f = fb(1920, 462);
             Effect::new().render_at(&mut f, &s, style, 100, 13.0);
@@ -772,5 +1219,206 @@ mod tests {
             }
             assert!(worst <= 12, "{style:?}: a seam of {worst} levels between two pixels");
         }
+    }
+
+    #[test]
+    fn rain_styles_parse_and_have_one_colour_palettes() {
+        assert_eq!(Style::parse("matrix"), Some(Style::Matrix));
+        assert_eq!(Style::parse("CODICE"), Some(Style::Matrix));
+        assert_eq!(Style::parse("pioggia"), Some(Style::Rain));
+        assert_eq!(Style::ALL.len(), 7);
+        for n in ["matrix", "green", "amber", "ambra", "violet", "crimson", "snow", "bianco", "neon"] {
+            assert!(Palette::parse(n).is_some(), "{n}");
+        }
+        // the rotating "all" list is unchanged: only the multi-colour presets
+        assert_eq!(Palette::presets().len(), MULTI_COLOUR_PRESETS);
+    }
+
+    #[test]
+    fn rain_glyphs_all_exist_in_the_pixel_font() {
+        for c in RAIN_CHARS.chars() {
+            assert!(trofeo_lcd::font::glyph(c).iter().any(|&r| r != 0), "{c:?} has no pixels");
+        }
+    }
+
+    #[test]
+    fn rain_renders_on_every_panel_and_palette_and_moves() {
+        for (w, h) in [(1920u32, 462u32), (1920, 400), (462, 1920), (640, 480)] {
+            for style in [Style::Matrix, Style::Rain] {
+                for pal in ["matrix", "amber", "violet", "crimson", "snow", "neon"] {
+                    let s = settings(style, pal);
+                    let mut a = fb(w, h);
+                    Effect::new().render_at(&mut a, &s, style, 100, 5.0);
+                    let mut b = fb(w, h);
+                    Effect::new().render_at(&mut b, &s, style, 100, 9.0);
+                    assert_ne!(a.as_bytes(), b.as_bytes(), "{style:?}/{pal} {w}x{h} does not move");
+                    let mut c = fb(w, h);
+                    Effect::new().render_at(&mut c, &s, style, 100, 5.0);
+                    assert_eq!(a.as_bytes(), c.as_bytes(), "{style:?}/{pal} is not a function of time");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rain_is_minimal_dark_and_in_the_chosen_colour() {
+        let s = settings(Style::Matrix, "matrix");
+        let mut f = fb(1920, 462);
+        Effect::new().render_at(&mut f, &s, Style::Matrix, 100, 12.0);
+        let b = f.as_bytes();
+        let n = (b.len() / 3) as u64;
+        let (mut r, mut g, mut bl, mut lit) = (0u64, 0u64, 0u64, 0u64);
+        for px in b.chunks_exact(3) {
+            r += px[0] as u64;
+            g += px[1] as u64;
+            bl += px[2] as u64;
+            if px[1] > 60 {
+                lit += 1;
+            }
+        }
+        assert!(g > r * 2 && g > bl * 2, "the matrix palette is green ({r},{g},{bl})");
+        assert!(lit * 100 < n * 25, "minimal: under a quarter of the pixels are lit ({lit}/{n})");
+        assert!(lit > 0, "something is drawn");
+    }
+
+    /// With TROFEO_DUMP_DIR set, writes the rain styles in every palette as PPM files.
+    #[test]
+    fn dump_rain_previews() {
+        let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") else { return };
+        for style in [Style::Matrix, Style::Rain] {
+            for pal in ["matrix", "amber", "violet", "crimson", "snow", "neon"] {
+                let s = settings(style, pal);
+                let mut f = fb(1920, 462);
+                Effect::new().render_at(&mut f, &s, style, 100, 12.0);
+                std::fs::write(
+                    format!("{dir}/rain_{style:?}_{pal}.ppm"),
+                    [format!("P6\n{} {}\n255\n", f.width(), f.height()).into_bytes(), f.as_bytes().to_vec()].concat(),
+                ).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn rain_frame_cost_is_small() {
+        for style in [Style::Matrix, Style::Rain] {
+            let s = settings(style, "matrix");
+            let mut f = fb(1920, 462);
+            let mut e = Effect::new();
+            e.render_at(&mut f, &s, style, 100, 1.0);
+            let t = std::time::Instant::now();
+            for k in 0..20 {
+                e.render_at(&mut f, &s, style, 100, 2.0 + k as f64 * 0.1);
+            }
+            let ms = t.elapsed().as_secs_f64() * 50.0;
+            eprintln!("{style:?}: {ms:.1} ms per frame");
+            assert!(ms < 60.0, "{style:?} takes {ms} ms per frame");
+        }
+    }
+
+    /// With TROFEO_DUMP_DIR set, writes aquarium previews as PPM files.
+    #[test]
+    fn dump_aquarium_previews() {
+        let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") else { return };
+        let cases = [("lagoon", 1920u32, 462u32, 50u32, 100u32, 20.0f64), ("deep", 1920, 462, 50, 100, 33.0), ("tropical", 1920, 462, 70, 100, 8.0),
+            ("lagoon", 462, 1920, 50, 100, 20.0), ("neon", 1920, 462, 50, 100, 20.0), ("lagoon", 1920, 462, 50, 40, 20.0), ("lagoon", 1920, 462, 50, 65, 26.0)];
+        for (n, (pal, w, h, level, bright, secs)) in cases.into_iter().enumerate() {
+            let mut st = settings(Style::Aquarium, pal);
+            st.level = level;
+            let mut f = fb(w, h);
+            Effect::new().render_at(&mut f, &st, Style::Aquarium, bright, secs);
+            std::fs::write(
+                format!("{dir}/aq_{n}_{pal}_{w}x{h}.ppm"),
+                [format!("P6\n{} {}\n255\n", f.width(), f.height()).into_bytes(), f.as_bytes().to_vec()].concat(),
+            ).unwrap();
+        }
+    }
+
+    #[test]
+    fn aquarium_parses_and_has_water_palettes() {
+        for n in ["aquarium", "ACQUARIO", "water", "tank"] {
+            assert_eq!(Style::parse(n), Some(Style::Aquarium), "{n}");
+        }
+        for n in ["lagoon", "laguna", "deep", "profondo", "tropical", "tropicale"] {
+            assert!(Palette::parse(n).is_some(), "{n}");
+        }
+        assert_eq!(Palette::presets().len(), MULTI_COLOUR_PRESETS, "the water presets are not part of `all`");
+        assert_eq!(Settings::default().level, 50);
+    }
+
+    #[test]
+    fn water_depth_goes_from_light_to_dark_whatever_the_palette() {
+        let luma = |c: Rgb| c.0 as u32 * 299 + c.1 as u32 * 587 + c.2 as u32 * 114;
+        for n in ["lagoon", "deep", "tropical", "neon", "ocean", "pastel", "matrix", "rainbow"] {
+            let st = Palette::parse(n).unwrap().depth_stops();
+            assert!(st.len() >= 2);
+            let (top, bottom) = (along(&st, 0.0), along(&st, 1.0));
+            assert!(luma(top) >= luma(bottom), "{n}");
+        }
+        assert_eq!(Palette::custom(vec![]).depth_stops().len(), 2);
+    }
+
+    #[test]
+    fn aquarium_renders_at_every_level_size_and_palette_and_moves() {
+        for (w, h) in [(1920u32, 462u32), (462, 1920), (640, 480), (64, 64)] {
+            for level in [0u32, 1, 50, 99, 100] {
+                for pal in ["lagoon", "deep", "tropical", "neon"] {
+                    let mut st = settings(Style::Aquarium, pal);
+                    st.level = level;
+                    let mut a = fb(w, h);
+                    Effect::new().render_at(&mut a, &st, Style::Aquarium, 65, 5.0);
+                    let mut b = fb(w, h);
+                    Effect::new().render_at(&mut b, &st, Style::Aquarium, 65, 9.0);
+                    let mut c = fb(w, h);
+                    Effect::new().render_at(&mut c, &st, Style::Aquarium, 65, 5.0);
+                    assert_eq!(a.as_bytes(), c.as_bytes(), "{pal} {w}x{h} level {level}: not a function of time");
+                    if level >= 1 {
+                        assert_ne!(a.as_bytes(), b.as_bytes(), "{pal} {w}x{h} level {level}: does not move");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn aquarium_level_sets_the_water_line_and_the_surface_stands_out() {
+        // The water is the brighter part: a column's brightness jumps at the surface.
+        let col_luma = |f: &Framebuffer, x: usize, y: usize| {
+            let o = (y * f.width() as usize + x) * 3;
+            let b = f.as_bytes();
+            b[o] as u32 + b[o + 1] as u32 + b[o + 2] as u32
+        };
+        let mut last_water = usize::MAX;
+        for level in [20u32, 50, 80] {
+            let mut st = settings(Style::Aquarium, "lagoon");
+            st.level = level;
+            let mut f = fb(1920, 462);
+            Effect::new().render_at(&mut f, &st, Style::Aquarium, 65, 3.0);
+            let x = 700;
+            let surface = (0..462).find(|&y| col_luma(&f, x, y) > col_luma(&f, x, 0) + 150).expect("water found");
+            // the water starts near the line (1 - level/100) of the height, within the wave height
+            let expect = 462.0 * (1.0 - level as f32 / 100.0);
+            assert!((surface as f32 - expect).abs() < 30.0, "level {level}: surface at {surface}, expected {expect}");
+            assert!(surface < last_water, "more water, higher surface");
+            last_water = surface;
+        }
+        // the air stays dark and the water is clearly lighter than it
+        let mut f = fb(1920, 462);
+        Effect::new().render_at(&mut f, &settings(Style::Aquarium, "lagoon"), Style::Aquarium, 65, 3.0);
+        assert!(col_luma(&f, 100, 10) < 100 && col_luma(&f, 100, 300) > 200);
+    }
+
+    #[test]
+    fn aquarium_frame_cost_is_small() {
+        let st = settings(Style::Aquarium, "lagoon");
+        let mut f = fb(1920, 462);
+        let mut e = Effect::new();
+        e.render_at(&mut f, &st, Style::Aquarium, 65, 1.0);
+        let t = std::time::Instant::now();
+        for k in 0..10 {
+            e.render_at(&mut f, &st, Style::Aquarium, 65, 2.0 + k as f64 * 0.1);
+        }
+        let ms = t.elapsed().as_secs_f64() * 100.0;
+        eprintln!("Aquarium: {ms:.1} ms per frame");
+        assert!(ms < 80.0, "takes {ms} ms per frame");
     }
 }

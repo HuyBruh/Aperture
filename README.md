@@ -1,17 +1,8 @@
 # trofeo_lcd
-![overview](img/overview.png)
-![overview2](img/overview2.jpeg)
-![overview2](img/overview3.jpeg)
-![overview2](img/overview4.jpeg)
-![overview2](img/overview5.jpeg)
-![overview2](img/overview6.jpeg)
-
 
 **A lightweight, open-source alternative to the official Thermalright TRCC
 software.** Audio visualizer + system info monitor for the
-**Thermalright Trofeo Vision 9.16 LCD** (USB `0416:5408`, "LY" protocol) and
-the **Trofeo Vision 11.3 LCD** (1920×400, same USB ID and protocol — see
-[Supported panels](#supported-panels)).
+**Thermalright Trofeo Vision 9.16 LCD** (USB `0416:5408`, "LY" protocol).
 
 This project is a fork of [sukualam/trofeo-lcd](https://github.com/sukualam/trofeo-lcd),
 whose driver was rewritten byte-for-byte from
@@ -25,18 +16,13 @@ depending on the moment:
 
 **Idle** — audio is quiet, so the EQ bars are low and the top bar shows
 system info: CPU usage & real-time frequency, RAM, uptime, clock and date.
-Under the clock, a little self-playing **pixel-art game** runs
-(see [Pixel game](#pixel-game-under-the-clock)).
 
 ![Idle — EQ idle & system info](img/idle.png)
 
-![Idle — clock, system info and the pixel game](img/pixel_game.png)
-
 **Media** — a song is playing: the stripes follow the music, and the top bar
 shows the now-playing track (title/artist/album from the media controls).
-With `music_screen = true` the whole panel becomes a Spotify-style now-playing card.
-![Music_Screen — now playing](img/anteprima_musica_varianti.png)
 
+![Media — now playing](img/media.png)
 
 **Gaming** — a game is in the foreground: game info is detected and the
 system status (CPU/GPU/RAM/temp) stays readable while playing.
@@ -46,20 +32,10 @@ system status (CPU/GPU/RAM/temp) stays readable while playing.
 ## Features
 
 - EQ bars (48) from currently playing audio (WASAPI loopback on Windows,
-  PulseAudio/PipeWire on Linux), colored green→yellow→red — or any of 9 color
-  palettes and 5 drawing styles.
+  PulseAudio/PipeWire on Linux), colored green→yellow→red.
+- Backgrounds: image / GIF / video, a **solid color** (name or hex), or a soft
+  **animated effect** (plasma, aurora, lava, waves, a minimal matrix-style digital rain, or an aquarium cross-section with a moving water surface).
 - System info: CPU %, real-time CPU frequency, RAM, uptime, clock & date.
-- **Music screen**: a Spotify-style now-playing card (album cover, artist/title,
-  progress bar, spectrum, colors taken from the cover).
-- **Pixel game** under the clock: a self-playing pixel-art platformer (a knight
-  or a cat) that reacts to CPU load, music, network/disk bursts, the hour, and
-  the real weather and time of day.
-- **Tiles layout**: a modern glass dashboard (rounded tiles with big numbers, bars and
-  rings) where you pick the tiles, the font (smooth or pixel), the bar colors and the
-  background (see [Tiles layout](#tiles-layout-glass-dashboard)).
-- **Animated backgrounds** instead of an image: plasma, aurora, lava lamp or
-  silk waves, with colors from pastel to fluorescent (or your own), adjustable
-  speed and brightness, at almost no CPU cost.
 - Can also drive a **DeepCool** display (sends CPU data over HID).
 - **Second monitor mode** (`trofeo_screen`): the LCD becomes a real second
   monitor.
@@ -68,6 +44,9 @@ system status (CPU/GPU/RAM/temp) stays readable while playing.
 - **News ticker**: RSS/Atom feeds, any plain-text URL, or a local file — as a
   scrolling line on top of any screen, and/or its own full panel.
 - Sync EQ bar color with an **OpenRGB** device.
+- **Pixel game** under the clock: a self-playing pixel-art platformer (a knight or a cat)
+  that reacts to CPU load, music, network/disk bursts, the hour and the real weather and
+  time of day (`pixel_game = false` turns it off).
 - Adaptive FPS: drops to idle when silent → saves CPU.
 
 ## Usage
@@ -126,34 +105,10 @@ handful of flags that only exist on the command line.
 | `--hide-console` | Hide the console window (Windows) | disabled |
 | `-k, --screenshot-key` | Global hotkey to save the current LCD frame as a lossless PNG screenshot (f1-f12, printscreen) | off |
 
-## Supported panels
-
-| Panel | Picture size | Setting |
-|---|---|---|
-| Trofeo Vision 9.16 | 1920×462 | default |
-| Trofeo Vision 11.3 | 1920×400 | recognised automatically, or `panel = trofeo-11.3` |
-
-The 11.3" panel uses the same USB ID (`0416:5408`) and the same handshake as the
-9.16", so it is **recognised automatically** from the handshake (byte 20 of the
-reply = 5). If it is not, or for any other size, set it by hand in `trofeo.conf`:
-
-```ini
-panel = trofeo-11.3        # trofeo-9.16 | trofeo-11.3
-# panel_size = 1920x400    # or any WIDTHxHEIGHT (wins over `panel`)
-```
-
-Every screen (default, layouts, music screen, pixel game, animated backgrounds)
-adapts to the panel size, in landscape and in portrait. At start-up the console
-prints `Connected: ... PM=.. SUB=..` and the canvas/panel size in use.
-**The 11.3" support has not been verified on real hardware yet**: if the picture
-is shifted, cropped or the panel stays black, please open an issue and paste
-those two console lines. For `trofeo_screen` (second-monitor mode) pass
-`--panel trofeo-11.3` and use a virtual display of 1920×400 (400×1920 in portrait).
-
 ## Orientation (landscape / portrait)
 
-The 9.16" panel is physically 1920×462 (1920×400 for the 11.3"). If you mount it upright, use portrait:
-the UI is drawn on a 462×1920 canvas (400×1920 on the 11.3") and rotated for the panel. Set it in a
+The panel is physically 1920×462. If you mount it upright, use portrait:
+the UI is drawn on a 462×1920 canvas and rotated for the panel. Set it in a
 config file (copy `trofeo.conf.example` to `trofeo.conf` next to the
 executable, or pass `--config <FILE>`) or on the command line:
 
@@ -185,16 +140,29 @@ Also settable in `trofeo.conf` (see `trofeo.conf.example`) or via CLI:
   A sample background (`img/sample_background.jpg`) is included in this repo
   if you just want to try it: `background = img/sample_background.jpg` — it's
   also what the [preset layout screenshots](#preset-layouts) below are shown over.
-- `background_effect = plasma | aurora | lava | waves`: a soft **animated
-  background** with no file needed — see [Animated background](#animated-background-plasma-aurora-lava-waves).
-  It replaces `background` while it is on.
+- `--background-color <COLOR>`: a **solid color** background instead of a picture:
+  a name (`black`, `white`, `green`, `blue`, `pink`, `orange`, `navy`, `teal`, …,
+  also in Italian: `nero`, `bianco`, `rosa`, …), `#RRGGBB` or `R,G,B`. An image or an
+  animated effect, if set, takes precedence.
+- `--background-effect matrix` / `rain`: a minimal animated **digital rain** (falling
+  characters, or just thin streaks) in green, amber, violet, crimson, white or neon
+  (`--effect-palette`); plasma / aurora / lava / waves are also available.
+  See the [options guide](OPTIONS_GUIDE.md#animated-background-effect-plasma-aurora-lava-waves-matrix-rain).
+
+  ![Matrix and rain backgrounds in several colors](img/background-rain.png)
+- `--background-effect aquarium`: a side view of an **aquarium** — you see the water
+  surface moving, with the water getting darker towards the bottom, slanting rays of
+  light, shimmering caustics and a few rising bubbles. `--effect-level <0-100>` sets how
+  high the water reaches; colors `lagoon`, `deep` and `tropical` (`--effect-palette`).
+
+  ![Aquarium background in lagoon, deep and tropical colors](img/background-aquarium.png)
 
 ### What to show, where, and colors
 
 - **Music screen**: `music_screen = true` turns the panel into a Spotify-style
   now-playing card while a track plays — album cover with glow, artist/title,
   progress bar, spectrum on the side, all tinted with the cover's colors. The
-  background is configurable (`music_bg = gradient | blur | color | solid | none | effect`,
+  background is configurable (`music_bg = gradient | blur | color | solid | none`,
   with brightness / blur / fit options), and a small footer with CPU / GPU / RAM
   load (`music_stats`, selectable). The spectrum color on this screen is its own
   setting (`music_spectrum_color`: cover color, a fixed color, a gradient or presets). Needs the player's cover to be exposed by the
@@ -217,48 +185,6 @@ Also settable in `trofeo.conf` (see `trofeo.conf.example`) or via CLI:
   `background_offset_x/y`.
 
 Every key is also a CLI flag (`--hide spectrum`, `--clock-position top-right`).
-
-### Pixel game under the clock
-
-![Pixel game — scenes at different times of day and weather](img/pixel_game_scenes.png)
-
-On the default screen (and on `default2`, the per-item one) a strip of
-**pixel-art game** is drawn under the clock, which shrinks to make room. A
-little knight or cat (`pixel_game_hero = knight | cat | both`) runs through a
-scrolling landscape and jumps over rocks, bushes, crates, slimes and holes by
-itself, and the world reacts to your computer:
-
-- **CPU load** sets the running speed (a sprint with dust at high load);
-- **music** makes the hero hop on the bass, with notes floating up;
-- **network bursts** drop rows of coins and **disk bursts** a treasure chest;
-- **on the hour** there are fireworks and a victory dance;
-- the **sky follows the real time** (dawn, day, dusk, night with moon and stars)
-  and the **weather** from the weather module (clouds, rain, snow, fog, thunderstorms).
-
-It is on by default; `pixel_game = false` turns it off, `pixel_game_height = 20-70`
-sets how much room it takes and `pixel_game_hud = false` hides the coin counter.
-It never shows on the preset layout panels, the music screen or the in-game
-dashboard. Because an animation needs smooth frames, the idle screen runs at
-`--active-fps` while it is visible — see [Performance](#performance). Details in the
-**[Options guide](./OPTIONS_GUIDE.md#pixel-game-mini-platformer-under-the-clock)**.
-
-### Animated background (plasma, aurora, lava, waves)
-
-![Animated background effects — styles and palettes](img/effects.png)
-
-Instead of a picture, the background can be a slow, soft effect whose colors blend
-into each other and drift: `background_effect = plasma | aurora | lava | waves`.
-Pick the colors with `effect_palette` (`pastel`, `fluo`, `neon`, `candy`, `sunset`,
-`ocean`, `aurora`, `fire`, `forest`, `ice`, `mono`, `rainbow` — several, or `all`,
-rotate with a cross-fade) or give your own with `effect_colors = #FF0080, #00FFFF`.
-`effect_speed` (0-100), `effect_scale` (25-400) and `effect_brightness` (0-100, lower
-keeps the text readable) shape the look. It is drawn behind everything, also behind
-the music screen with `music_bg = effect`.
-
-It is built to be light: the picture is only calculated on a coarse grid and
-stretched through a color table (about a millisecond per frame), and `effect_fps`
-(default 8) keeps the number of frames low — see [Performance](#performance).
-Details in the **[Options guide](./OPTIONS_GUIDE.md#animated-background-effect-plasma-aurora-lava-waves)**.
 
 ### Brightness, DeepCool, FPS
 
@@ -323,7 +249,7 @@ and more examples (combining feeds and files, styling the chyron, etc.).
 
 ### Preset layouts
 
-`layout = default | cpu-gpu | temps | overview | grid6 | clock-center | io | music | gaming | cpu | gpu | weather | news | tiles`
+`layout = default | cpu-gpu | temps | overview | grid6 | clock-center | io | music | gaming | cpu | gpu | weather | news`
 (`--layout list` prints them). All of them, shown here over a sample background
 (`background = img/sample_background.jpg`, `panel_opacity = 60`):
 
@@ -346,39 +272,6 @@ screen (status lines, spectrum, big clock) and can be part of the rotation (`lay
 behind the status lines and big clock (same opacity); `panel_opacity = 0-100`
 makes panels see-through over the background. Big panels replace the clock; portrait stacks
 them vertically. See `trofeo.conf.example`.
-
-### Tiles layout (glass dashboard)
-
-![tiles](img/layout-tiles.png)
-
-`layout = tiles` shows rounded, semi-transparent tiles with big values, a progress
-bar or a ring and an optional second value — the clock, CPU/GPU load, temperatures
-and watts, RAM, network, disk, FPS, weather and the playing track. You choose
-**which tiles** to show and in which rows, the **font** (anti-aliased "smooth" or the
-classic pixel font), the **colors** of the bars and rings (all of them, or one
-tile at a time) and what is **behind** the tiles:
-
-```ini
-layout = tiles
-# Rows are separated by "|"; ":ring" draws a ring instead of a bar,
-# "clock:tall" makes the clock as tall as all the rows.
-tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring
-tiles_font = smooth                         # smooth | pixel
-tiles_theme = dark                          # dark | light
-tiles_bar_color = #00C8FF, #FF0080          # all bars and rings: one color or a gradient (default: auto)
-tile_gpu_color = #FFC800                    # ...and one tile on its own
-tiles_bg = gradient                         # global | color | gradient | effect | image
-tiles_bg_color = #1B2A4A, #4A1B3A
-```
-
-![tiles looks](img/tiles-looks.png)
-
-Tiles: `clock cpu cpu_temp cpu_watt gpu gpu_temp gpu_watt ram net disk fps weather music`.
-Backgrounds: whatever the other screens use (`global`), a color, a gradient, the
-animated effects of [Animated background](#animated-background-plasma-aurora-lava-waves),
-or an image just for this screen. Works on 1920×462, 1920×400 and in portrait; the
-tiles are redrawn only when something changes, so even an animated background costs
-little. All the keys are in the [options guide](./OPTIONS_GUIDE.md#tiles-layout).
 
 ### Live reload
 
@@ -436,19 +329,14 @@ Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
 - `src/deepcool/` — DeepCool display drivers (HID).
 - `src/dxgi_capture.rs` + `src/bin/screen.rs` — second monitor mode.
 - `src/weather.rs` + `src/weather_icon.rs` — weather (Open-Meteo) and its condition icons.
-- `src/ticker.rs` — news ticker: RSS/Atom feeds, plain-text URLs, or a local file.
-- `src/spectrum.rs` — spectrum styles and color palettes.
-- `src/media.rs` + `src/music_screen.rs` — now-playing info (Windows media controls / `playerctl`) and the Spotify-style music screen.
 - `src/pixel_game.rs` — the self-playing pixel-art platformer under the clock.
-- `src/effect.rs` — the animated background effects (plasma, aurora, lava, waves).
-- `src/tiles.rs` + `src/smooth_font.rs` + `assets/` — the tiles layout and its anti-aliased text (embedded Poppins font, SIL OFL: see `assets/OFL.txt`).
+- `src/ticker.rs` — news ticker: RSS/Atom feeds, plain-text URLs, or a local file.
 - `src/main.rs` — main loop: audio → FFT → EQ bars → send to screen.
 
 ## Performance
 
 Measured on a Windows PC (12 logical processors), running `trofeo_lcd` at
-default settings (idle FPS 2 / active 15, DeepCool enabled), before the pixel
-game existed:
+default settings (idle FPS 2 / active 15, DeepCool enabled):
 
 | Metric | Measured |
 |---|---|
@@ -458,19 +346,6 @@ It stays this light thanks to adaptive FPS (JPEG encode + USB transfer only
 happen while there is audio) and the CPU optimizations in `src/main.rs` /
 `src/lib.rs`.
 
-The **pixel game** (on by default) trades some of that for animation: while it
-is on screen the idle screen runs at the active FPS (15) instead of the idle
-one (2). Drawing the game itself costs well under a millisecond per frame; the
-extra load is JPEG-encoding and sending more frames. Set `pixel_game = false`
-to get the minimal-load behavior measured above. These figures have not been
-re-measured with the game on.
-
-An **animated background effect** works the same way: building the picture takes about a
-millisecond, and the cost that matters is the extra frames. It uses its own, low
-`effect_fps` (default 8) while it moves instead of the idle 2 fps, so it sits between the
-idle screen and the game; lower `effect_fps` or set `effect_speed = 0` (a still picture,
-idle FPS unchanged) to make it lighter still.
-
 ## Credits
 
 - Original project: [sukualam/trofeo-lcd](https://github.com/sukualam/trofeo-lcd)
@@ -478,8 +353,6 @@ idle FPS unchanged) to make it lighter still.
 - USB protocol reverse-engineering:
   [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux)
   by Lexonight1.
-- Smooth text in the tiles layout uses a subset of the [Poppins](https://github.com/itfoundry/Poppins) font
-  (© The Poppins Project Authors, SIL Open Font License 1.1 — `assets/OFL.txt`).
 - See **[NOTICE.md](./NOTICE.md)** for what has changed in this fork.
 
 ## License

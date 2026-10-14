@@ -205,6 +205,9 @@ struct Config {
     background: Option<std::path::PathBuf>,
     /// How much to darken the background, 0-100 (for better text readability).
     background_dim: u8,
+    /// A solid background color (`background_color = black | white | pink | #1B2A4A ...`),
+    /// used when there is no image and no animated effect.
+    background_color: Option<(u8, u8, u8)>,
     /// Path to ffmpeg (default: next to the program, then PATH).
     ffmpeg: Option<String>,
     /// Brightness 0-100.
@@ -280,6 +283,7 @@ fn print_help() {
          \x20\x20--language <en|it|de|es|fr|pt>  Interface language (default: en)\n\
          \x20\x20--background <FILE>      Background: jpg/png/bmp, animated gif, or video\n\
          \x20\x20                          (videos require ffmpeg)\n\
+         \x20\x20--background-color <C>   Solid background color (name or #RRGGBB), when there is no image/effect\n\
          \x20\x20--background-dim <0-100> Darkens the background (default: 40)\n\
          \x20\x20--ffmpeg <PATH>      Path to ffmpeg (default: next to the exe/PATH)\n\
          \x20\x20--weather-city <NAME>    City for the weather module (default: auto-detect\n\
@@ -323,10 +327,10 @@ fn print_help() {
          \x20\x20--music-spectrum-color <cover|main|COLOR|PRESET>  Music screen spectrum color (default: cover)\n\
          \x20\x20--pixel-game <true|false>  Pixel-art mini game under the clock on the default screen (default: true)\n\
          \x20\x20--pixel-game-hero <knight|cat|both>, --pixel-game-height <20-70>, --pixel-game-hud <true|false>\n\
-         \x20\x20--background-effect <plasma|aurora|lava|waves|none>  Animated background instead of an image (default: none)\n\
-         \x20\x20--effect-palette <P>    pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow | all\n\
+         \x20\x20--background-effect <plasma|aurora|lava|waves|matrix|rain|aquarium|none>  Animated background instead of an image (default: none)\n\
+         \x20\x20--effect-palette <P>    pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow |\n         \x20\x20                          matrix | amber | violet | crimson | snow (one-colour, for matrix/rain) |\n         \x20\x20                          lagoon | deep | tropical (for aquarium) | all\n\
          \x20\x20--effect-colors <C>     Own colors: 2+ colors, e.g. #FF0080,#00FFFF (used when --effect-palette is not set)\n\
-         \x20\x20--effect-speed <0-100>, --effect-scale <25-400>, --effect-brightness <0-100>, --effect-fps <1-30>\n\
+         \x20\x20--effect-speed <0-100>, --effect-scale <25-400>, --effect-brightness <0-100>, --effect-fps <1-30>, --effect-level <0-100> (aquarium: how high the water is)\n\
          \x20\x20                          (defaults: 30, 100, 40, 8); --effect-palette-interval <SEC> rotates several palettes\n\
          \x20\x20--music-stats <list>      Music screen footer: cpu, gpu, ram, net, disk, time, uptime, all or none (default: cpu,gpu,ram)\n\
          \x20\x20--music-bg <gradient|blur|color|solid|none>  Music screen background (default: gradient)\n\
@@ -350,18 +354,45 @@ fn print_help() {
     );
 }
 
-/// Common color names that can be used directly without knowing the hex/RGB code.
+/// Common color names that can be used directly without knowing the hex/RGB code
+/// (English, Italian and Indonesian aliases for the basic ones; spaces, `-` and `_` are
+/// ignored: `dark green` = `darkgreen`).
 fn named_color(name: &str) -> Option<(u8, u8, u8)> {
-    Some(match name.to_ascii_lowercase().as_str() {
-        "red" | "merah" | "rosso" => (0xFF, 0x00, 0x00),
-        "green" | "hijau" | "verde" => (0x00, 0xFF, 0x00),
-        "blue" | "biru" | "blu" => (0x00, 0x00, 0xFF),
-        "yellow" | "kuning" | "giallo" => (0xFF, 0xFF, 0x00),
-        "cyan" | "azzurro" | "ciano" => (0x00, 0xFF, 0xFF),
-        "magenta" | "pink" | "rosa" => (0xFF, 0x00, 0xFF),
+    let key: String = name.to_ascii_lowercase().chars().filter(|c| !matches!(c, ' ' | '-' | '_')).collect();
+    Some(match key.as_str() {
+        "black" | "nero" | "hitam" => (0x00, 0x00, 0x00),
         "white" | "putih" | "bianco" => (0xFF, 0xFF, 0xFF),
+        "gray" | "grey" | "grigio" | "abu" => (0x80, 0x80, 0x80),
+        "lightgray" | "lightgrey" | "grigiochiaro" => (0xD3, 0xD3, 0xD3),
+        "darkgray" | "darkgrey" | "grigioscuro" => (0x40, 0x40, 0x40),
+        "silver" | "argento" => (0xC0, 0xC0, 0xC0),
+        "red" | "merah" | "rosso" => (0xFF, 0x00, 0x00),
+        "darkred" | "maroon" | "bordeaux" => (0x80, 0x00, 0x00),
+        "green" | "hijau" | "verde" | "lime" => (0x00, 0xFF, 0x00),
+        "darkgreen" | "verdescuro" => (0x00, 0x64, 0x00),
+        "lightgreen" | "verdechiaro" => (0x90, 0xEE, 0x90),
+        "olive" | "oliva" => (0x80, 0x80, 0x00),
+        "blue" | "biru" | "blu" => (0x00, 0x00, 0xFF),
+        "navy" | "darkblue" | "bluscuro" | "blunotte" => (0x00, 0x00, 0x80),
+        "lightblue" | "bluchiaro" => (0xAD, 0xD8, 0xE6),
+        "skyblue" | "celeste" => (0x87, 0xCE, 0xEB),
+        "yellow" | "kuning" | "giallo" => (0xFF, 0xFF, 0x00),
+        "gold" | "oro" => (0xFF, 0xD7, 0x00),
+        "cyan" | "azzurro" | "ciano" | "aqua" => (0x00, 0xFF, 0xFF),
+        "teal" | "verdeacqua" => (0x00, 0x80, 0x80),
+        "turquoise" | "turchese" => (0x40, 0xE0, 0xD0),
+        "magenta" | "fucsia" | "fuchsia" => (0xFF, 0x00, 0xFF),
+        "pink" | "rosa" => (0xFF, 0xC0, 0xCB),
+        "hotpink" | "rosafluo" => (0xFF, 0x69, 0xB4),
+        "salmon" | "salmone" => (0xFA, 0x80, 0x72),
+        "coral" | "corallo" => (0xFF, 0x7F, 0x50),
         "orange" | "oranye" | "arancione" => (0xFF, 0xA5, 0x00),
+        "brown" | "marrone" => (0x8B, 0x45, 0x13),
+        "beige" => (0xF5, 0xF5, 0xDC),
         "purple" | "ungu" | "viola" => (0x80, 0x00, 0x80),
+        "violet" | "violetto" => (0xEE, 0x82, 0xEE),
+        "indigo" => (0x4B, 0x00, 0x82),
+        "lavender" | "lavanda" => (0xE6, 0xE6, 0xFA),
         _ => return None,
     })
 }
@@ -641,6 +672,7 @@ fn parse_args() -> anyhow::Result<Config> {
     if background_dim > 100 {
         anyhow::bail!("--background-dim must be between 0 and 100");
     }
+    let background_color = parse_color_opt(&file, "background_color")?;
     let ffmpeg = ffmpeg_cli.or_else(|| file.get("ffmpeg").map(str::to_string));
     let weather_city = weather_city_cli.or_else(|| file.get("weather_city").map(str::to_string));
     let ticker_source = file.get("ticker_source").map(str::to_string);
@@ -673,6 +705,7 @@ fn parse_args() -> anyhow::Result<Config> {
         language,
         background,
         background_dim: background_dim as u8,
+        background_color,
         ffmpeg,
         brightness: brightness as u8,
         fps_monitor,
@@ -692,7 +725,7 @@ fn parse_args() -> anyhow::Result<Config> {
 const OVERRIDE_KEYS: &[&str] = &[
     "show", "hide", "text_color", "clock_color", "status_position", "clock_position",
     "spectrum_position", "spectrum_width", "spectrum_height", "status_style",
-    "background_fit", "background_position", "background_offset_x", "background_offset_y",
+    "background_color", "background_fit", "background_position", "background_offset_x", "background_offset_y",
     "brightness", "deepcool", "fps_monitor", "layout", "layout_spectrum",
     "layout_hold_on_music", "layout_interval", "panel_opacity", "text_backdrop",
     "spectrum_style", "spectrum_style_interval", "spectrum_palette",
@@ -701,7 +734,7 @@ const OVERRIDE_KEYS: &[&str] = &[
     "music_bg_blur", "music_bg_fit", "music_bg_color", "music_stats", "music_spectrum_color",
     "pixel_game", "pixel_game_hero", "pixel_game_height", "pixel_game_hud",
     "background_effect", "effect_palette", "effect_colors", "effect_palette_interval",
-    "effect_speed", "effect_scale", "effect_brightness", "effect_fps",
+    "effect_speed", "effect_scale", "effect_brightness", "effect_fps", "effect_level",
     "panel", "panel_size",
 ];
 
@@ -1070,6 +1103,19 @@ fn parse_effect(file: &ConfigFile) -> anyhow::Result<effect::Settings> {
             }
         }
     }
+    // The rain styles look right in green and the aquarium in turquoise: those are the
+    // defaults unless colors are chosen.
+    if file.get("effect_palette").is_none() && file.get("effect_colors").is_none() {
+        match e.style {
+            Some(effect::Style::Matrix | effect::Style::Rain) => {
+                e.palettes = vec![effect::Palette::parse("matrix").expect("preset")];
+            }
+            Some(effect::Style::Aquarium) => {
+                e.palettes = vec![effect::Palette::parse("lagoon").expect("preset")];
+            }
+            _ => {}
+        }
+    }
     let ranged = |key: &str, default: u32, lo: u32, hi: u32| -> anyhow::Result<u32> {
         match file.get_u32(key).map_err(|e| anyhow::anyhow!(e))? {
             None => Ok(default),
@@ -1079,8 +1125,11 @@ fn parse_effect(file: &ConfigFile) -> anyhow::Result<effect::Settings> {
     };
     e.speed = ranged("effect_speed", e.speed, 0, 100)?;
     e.scale = ranged("effect_scale", e.scale, 25, 400)?;
-    e.brightness = ranged("effect_brightness", e.brightness, 0, 100)?;
+    // water needs more light than the other styles to look like water
+    let default_brightness = if e.style == Some(effect::Style::Aquarium) { 65 } else { e.brightness };
+    e.brightness = ranged("effect_brightness", default_brightness, 0, 100)?;
     e.fps = ranged("effect_fps", e.fps, 1, 30)?;
+    e.level = ranged("effect_level", e.level, 0, 100)?;
     e.palette_interval = ranged("effect_palette_interval", e.palette_interval, 5, 3600)?;
     Ok(e)
 }
@@ -1380,7 +1429,7 @@ fn build_display(config: &Config) -> anyhow::Result<Display> {
     } else {
         config.idle_fps
     };
-    let composite = background.is_some() || effect_on || !config.margins.is_zero() || config.ui.panel_opacity < 100;
+    let composite = background.is_some() || effect_on || config.background_color.is_some() || !config.margins.is_zero() || config.ui.panel_opacity < 100;
     let fb = Framebuffer::new(resolution);
     let ui = Framebuffer::new(if composite { ui_resolution } else { trofeo_lcd::Resolution::new(1, 1) });
     Ok(Display { resolution, background, idle_fps_effective, composite, fb, ui })
@@ -1912,7 +1961,10 @@ fn main() -> anyhow::Result<()> {
             match (background.as_mut(), config.ui.effect.style) {
                 (Some(bg), _) => bg.render_into(&mut fb),
                 (None, Some(style)) => bg_effect.render(&mut fb, &config.ui.effect, style, config.ui.effect.brightness),
-                (None, None) => fb.clear(0x08, 0x08, 0x10),
+                (None, None) => {
+                    let c = config.background_color.unwrap_or((0x08, 0x08, 0x10));
+                    fb.clear(c.0, c.1, c.2)
+                }
             }
             ui.clear(UI_KEY.0, UI_KEY.1, UI_KEY.2);
         } else {
@@ -3703,6 +3755,45 @@ mod layout_tests {
         assert_eq!(game_strip_height(120, 46), 0); // too short a content area
         assert!(game_strip_height(352, 46) >= 84 && game_strip_height(1700, 46) <= 260);
         TEST_OPTS.with(|t| *t.borrow_mut() = None);
+    }
+
+    #[test]
+    fn color_names_and_solid_background() {
+        assert_eq!(named_color("white"), Some((255, 255, 255)));
+        assert_eq!(named_color("Dark Green"), Some((0, 100, 0)));
+        assert_eq!(named_color("sky-blue"), Some((0x87, 0xCE, 0xEB)));
+        assert_eq!(named_color("rosa"), Some((0xFF, 0xC0, 0xCB)));
+        assert_eq!(named_color("fucsia"), Some((255, 0, 255)));
+        assert_eq!(named_color("nonsense"), None);
+        let bg = |t: &str| parse_color_opt(&ConfigFile::parse(t).unwrap(), "background_color");
+        assert_eq!(bg("").unwrap(), None);
+        assert_eq!(bg("background_color = pink\n").unwrap(), Some((255, 192, 203)));
+        assert_eq!(bg("background_color = #1B2A4A\n").unwrap(), Some((0x1B, 0x2A, 0x4A)));
+        assert_eq!(bg("background_color = 10,20,30\n").unwrap(), Some((10, 20, 30)));
+        assert!(bg("background_color = notacolor\n").is_err());
+        assert!(is_override_key("background_color"));
+        // matrix/rain default to the green palette unless colors are chosen
+        let e = parse_effect(&ConfigFile::parse("background_effect = matrix\n").unwrap()).unwrap();
+        assert_eq!(e.style, Some(effect::Style::Matrix));
+        assert_eq!(e.palettes, vec![effect::Palette::parse("matrix").unwrap()]);
+        let e = parse_effect(&ConfigFile::parse("background_effect = rain\neffect_palette = amber\n").unwrap()).unwrap();
+        assert_eq!(e.palettes, vec![effect::Palette::parse("amber").unwrap()]);
+    }
+
+    #[test]
+    fn aquarium_options() {
+        let e = |t: &str| parse_effect(&ConfigFile::parse(t).unwrap());
+        let a = e("background_effect = aquarium\n").unwrap();
+        assert_eq!(a.style, Some(effect::Style::Aquarium));
+        assert_eq!(a.palettes, vec![effect::Palette::parse("lagoon").unwrap()]);
+        assert_eq!((a.level, a.brightness), (50, 65));
+        let b = e("background_effect = acquario\neffect_palette = deep\neffect_level = 70\neffect_brightness = 30\n").unwrap();
+        assert_eq!(b.palettes, vec![effect::Palette::parse("deep").unwrap()]);
+        assert_eq!((b.level, b.brightness), (70, 30));
+        // the other styles keep their own default brightness
+        assert_eq!(e("background_effect = plasma\n").unwrap().brightness, 40);
+        assert!(e("effect_level = 101\n").is_err());
+        assert!(is_override_key("effect_level"));
     }
 
     #[test]
