@@ -1,6 +1,6 @@
 name: Release
 
-# Builds trofeo_lcd.exe and trofeo_screen.exe natively on Windows and
+# Builds trofeo_lcd.exe, trofeo_screen.exe and trofeo_config.exe natively on Windows and
 # publishes them as downloadable assets on the GitHub Release for the tag
 # that triggered the run.
 #
@@ -52,6 +52,7 @@ jobs:
           mkdir -p "$out"
           cp target/release/trofeo_lcd.exe "$out/"
           cp target/release/trofeo_screen.exe "$out/"
+          cp target/release/trofeo_config.exe "$out/"
           cp README.md NOTICE.md LICENSE OPTIONS_GUIDE.md trofeo.conf.example "$out/"
           [ -f GUIDE_SECOND_MONITOR.md ] && cp GUIDE_SECOND_MONITOR.md "$out/"
           [ -d scripts ] && cp -r scripts "$out/"
