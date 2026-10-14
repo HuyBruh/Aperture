@@ -189,6 +189,8 @@ language = en
 #   matrix = minimal digital rain (characters), rain = thin streaks; green by default
 #   aquarium = side view of an aquarium: moving water surface, light rays, caustics, bubbles
 # effect_level = 50            # aquarium only: how high the water reaches, 0-100 %
+# effect_theme = dark          # dark | light: matrix / rain / aquarium on a white background
+#                              # (use a dark text_color / clock_color with light)
 # Colors: pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice |
 # mono | rainbow | custom; for matrix / rain: matrix (green) | amber | violet | crimson | snow;
 # for aquarium: lagoon (default) | deep | tropical.

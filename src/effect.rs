@@ -293,6 +293,17 @@ fn dim(c: Rgb, k: f32) -> Rgb {
     (ch(r), ch(g), ch(b))
 }
 
+/// Ink of the light variant: the colour a little darker, and paler the lower the brightness.
+fn light_ink(c: Rgb, k: f32) -> Rgb {
+    lerp_rgb((255, 255, 255), dim(c, 0.72), 0.45 + 0.55 * k)
+}
+
+/// Water of the light variant: a pale tint at the surface, deeper (more colour) towards the bottom.
+fn light_water(c: Rgb, depth: f32, k: f32) -> Rgb {
+    let m = (0.38 + 0.42 * depth) * (0.5 + 0.5 * k);
+    lerp_rgb((255, 255, 255), c, m.min(1.0))
+}
+
 /// Colour at `u` (0-1) along an open gradient (at least two stops).
 fn along(stops: &[Rgb], u: f32) -> Rgb {
     let n = stops.len();
@@ -328,6 +339,8 @@ pub struct Settings {
     pub fps: u32,
     /// Aquarium only: how high the water reaches, in % of the panel (0 = empty, 100 = full).
     pub level: u32,
+    /// Matrix, rain and aquarium: a light (white) variant instead of the dark one.
+    pub light: bool,
 }
 
 impl Default for Settings {
@@ -341,6 +354,7 @@ impl Default for Settings {
             brightness: 40,
             fps: 8,
             level: 50,
+            light: false,
         }
     }
 }
@@ -370,6 +384,7 @@ struct LutKey {
     /// Cross-fade amount, quantised to 1/64.
     f: u8,
     brightness: u32,
+    light: bool,
     /// Hash of the palette contents (changes when the user edits them).
     sig: u64,
 }
@@ -383,6 +398,10 @@ pub struct Effect {
     water_lut: Vec<[u8; 3]>,
     /// Brightness (0-1) the colour tables were built for.
     bright: f32,
+    /// Light variant: the paper colour (air, rain background) and the colour of the water's edge.
+    light: bool,
+    paper: [u8; 3],
+    edge: [u8; 3],
     lut_key: Option<LutKey>,
     /// Field samples (fixed point, in LUT entries), `cols * rows`.
     cells: Vec<i32>,
@@ -404,6 +423,9 @@ impl Effect {
             rain_lut: vec![[0; 3]; RAIN_N],
             water_lut: vec![[0; 3]; WATER_N],
             bright: 0.4,
+            light: false,
+            paper: [255; 3],
+            edge: [0; 3],
             lut_key: None,
             cells: Vec::new(),
             cols: 0,
@@ -464,27 +486,41 @@ impl Effect {
         };
         let fq = (f * 64.0).round() as u8;
         let sig = palette_sig(&s.palettes[a]) ^ palette_sig(&s.palettes[b]).rotate_left(17);
-        let key = LutKey { a, b, f: fq, brightness, sig };
+        let key = LutKey { a, b, f: fq, brightness, light: s.light, sig };
         if self.lut_key == Some(key) {
             return;
         }
         let k = brightness.min(100) as f32 / 100.0;
         self.bright = k;
+        self.light = s.light;
         let fade = fq as f32 / 64.0;
+        let light = s.light;
         for (i, e) in self.rain_lut.iter_mut().enumerate() {
             let u = i as f32 / RAIN_N as f32;
             let ca = s.palettes[a].pick(u);
             let c = if a == b { ca } else { lerp_rgb(ca, s.palettes[b].pick(u), fade) };
-            let d = dim(c, k);
+            let d = if light { light_ink(c, k) } else { dim(c, k) };
             *e = [d.0, d.1, d.2];
         }
         let (sa, sb) = (s.palettes[a].depth_stops(), s.palettes[b].depth_stops());
         for (i, e) in self.water_lut.iter_mut().enumerate() {
             let u = i as f32 / (WATER_N - 1) as f32;
-            let ca = along(&sa, u);
-            let c = if a == b { ca } else { lerp_rgb(ca, along(&sb, u), fade) };
-            let d = dim(c, k);
+            // the light variant never goes all the way to the darkest colour: it would turn grey
+            let uu = if light { u * 0.7 } else { u };
+            let ca = along(&sa, uu);
+            let c = if a == b { ca } else { lerp_rgb(ca, along(&sb, uu), fade) };
+            let d = if light { light_water(c, u, k) } else { dim(c, k) };
             *e = [d.0, d.1, d.2];
+        }
+        if light {
+            // a faint tint of the palette in the white, and a darker edge for the water surface
+            let tint = |p: &Palette| lerp_rgb((255, 255, 255), p.pick(0.0), 0.06);
+            let edge = |st: &[Rgb]| lerp_rgb((255, 255, 255), dim(along(st, 0.5), 0.55), 0.6 + 0.4 * k);
+            let (pa, pb) = (tint(&s.palettes[a]), tint(&s.palettes[b]));
+            let (ea, eb) = (edge(&sa), edge(&sb));
+            let (p, e) = if a == b { (pa, ea) } else { (lerp_rgb(pa, pb, fade), lerp_rgb(ea, eb, fade)) };
+            self.paper = [p.0, p.1, p.2];
+            self.edge = [e.0, e.1, e.2];
         }
         for (i, e) in self.lut.iter_mut().enumerate() {
             let u = i as f32 / LUT_N as f32;
@@ -690,7 +726,7 @@ impl Effect {
     fn paint_rain(&mut self, fb: &mut Framebuffer, style: Style, scale: u32, t: f64) {
         let (w, h) = (fb.width() as i32, fb.height() as i32);
         let base = self.rain_lut[0];
-        let ground = [base[0] / 14, base[1] / 14, base[2] / 14];
+        let ground = if self.light { self.paper } else { [base[0] / 14, base[1] / 14, base[2] / 14] };
         for px in fb.as_bytes_mut().chunks_exact_mut(3) {
             px.copy_from_slice(&ground);
         }
@@ -698,6 +734,26 @@ impl Effect {
         match style {
             Style::Matrix => self.paint_matrix(fb, w, h, g, t),
             _ => self.paint_streaks(fb, w, h, g, t),
+        }
+    }
+
+    /// The colour of a drop's tail at intensity `i` (1 = full): it fades into the background.
+    fn shade(&self, c: [u8; 3], i: f32) -> [u8; 3] {
+        if self.light {
+            let p = self.paper;
+            let f = |v: u8, g: u8| (g as f32 + (v as f32 - g as f32) * i) as u8;
+            [f(c[0], p[0]), f(c[1], p[1]), f(c[2], p[2])]
+        } else {
+            [(c[0] as f32 * i) as u8, (c[1] as f32 * i) as u8, (c[2] as f32 * i) as u8]
+        }
+    }
+
+    /// The head of a drop: lighter than its tail on dark, darker on light.
+    fn head(&self, c: [u8; 3], white: u32) -> [u8; 3] {
+        if self.light {
+            [(c[0] as u32 * 3 / 4) as u8, (c[1] as u32 * 3 / 4) as u8, (c[2] as u32 * 3 / 4) as u8]
+        } else {
+            head_colour(c, white)
         }
     }
 
@@ -724,11 +780,7 @@ impl Effect {
                 let seed = mix(col as u64 * 7919 + row as u64, if k == 0 { flicker } else { d.epoch });
                 let glyph = trofeo_lcd::font::glyph(chars[(seed % chars.len() as u64) as usize]);
                 // the head is the brightest, a little whiter; the tail fades into the colour
-                let rgb = if k == 0 {
-                    head_colour(c, white)
-                } else {
-                    [(c[0] as f32 * i) as u8, (c[1] as f32 * i) as u8, (c[2] as f32 * i) as u8]
-                };
+                let rgb = if k == 0 { self.head(c, white) } else { self.shade(c, i) };
                 let (x0, y0) = (col * cw + g, row * ch + g);
                 for (ry, bits) in glyph.iter().enumerate() {
                     for cx in 0..5 {
@@ -757,11 +809,7 @@ impl Effect {
                     continue;
                 }
                 let i = (1.0 - k as f32 / d.len).clamp(0.0, 1.0).powf(1.6);
-                let rgb = if k < width {
-                    head_colour(c, white)
-                } else {
-                    [(c[0] as f32 * i) as u8, (c[1] as f32 * i) as u8, (c[2] as f32 * i) as u8]
-                };
+                let rgb = if k < width { self.head(c, white) } else { self.shade(c, i) };
                 fill(fb, x, y, width, 1, rgb);
             }
         }
@@ -818,8 +866,13 @@ impl Effect {
         let amp = (w.min(h) as f32 * 0.045) * g.sqrt();
         let y0 = h as f32 * (1.0 - level.min(100) as f32 / 100.0);
         let wl = &self.water_lut;
-        let air = wl[WATER_N - 1];
-        let air = [air[0] / 2, air[1] / 2, air[2] / 2];
+        let light_theme = self.light;
+        let air = if light_theme {
+            self.paper
+        } else {
+            let a = wl[WATER_N - 1];
+            [a[0] / 2, a[1] / 2, a[2] / 2]
+        };
         let px = fb.as_bytes_mut();
         if level == 0 {
             for p in px.chunks_exact_mut(3) {
@@ -855,13 +908,17 @@ impl Effect {
         let span = (h as f32 - y0 + amp).max(1.0);
         let inv = (WATER_N - 1) as f32 / span;
         let top = wl[0];
-        let light = [top[0] as i32, top[1] as i32, top[2] as i32];
+        // what the rays and caustics add: the surface colour (dark theme) or plain white
+        let light = if light_theme { [255, 255, 255] } else { [top[0] as i32, top[1] as i32, top[2] as i32] };
         // the line on the surface stays clearly visible even when the water is dimmed
         let white = (255.0 * self.bright.sqrt()) as u32;
-        let line = {
+        let line = if light_theme {
+            [self.edge[0] as i32, self.edge[1] as i32, self.edge[2] as i32]
+        } else {
             let f = |v: u8| (v as u32 + white.saturating_sub(v as u32) * 3 / 5).min(255) as i32;
             [f(top[0]), f(top[1]), f(top[2])]
         };
+        let glow_k = if light_theme { 30.0 } else { 90.0 };
         let air_i = [air[0] as i32, air[1] as i32, air[2] as i32];
         for y in 0..h {
             let yf = y as f32 + 0.5;
@@ -885,7 +942,7 @@ impl Effect {
                 }
                 if dy < 10.0 {
                     // a glow just under the surface, the water's edge and the bright line on it
-                    let glow = ((1.0 - dy.max(0.0) / 10.0).powi(2) * 90.0) as i32;
+                    let glow = ((1.0 - dy.max(0.0) / 10.0).powi(2) * glow_k) as i32;
                     let cov = ((dy + 0.5).clamp(0.0, 1.0) * 256.0) as i32;
                     let ln = ((1.0 - dy.abs() / 1.7).clamp(0.0, 1.0) * 256.0) as i32;
                     for k in 0..3 {
@@ -899,7 +956,8 @@ impl Effect {
                 p[2] = c[2].clamp(0, 255) as u8;
             }
         }
-        self.paint_bubbles(fb, y0, amp, g, tf, line);
+        let tint = if light_theme { [255, 255, 255] } else { line };
+        self.paint_bubbles(fb, y0, amp, g, tf, tint);
     }
 
     fn paint_bubbles(&mut self, fb: &mut Framebuffer, y0: f32, amp: f32, g: f32, t: f32, tint: [i32; 3]) {
@@ -1420,5 +1478,65 @@ mod tests {
         let ms = t.elapsed().as_secs_f64() * 100.0;
         eprintln!("Aquarium: {ms:.1} ms per frame");
         assert!(ms < 80.0, "takes {ms} ms per frame");
+    }
+
+    /// With TROFEO_DUMP_DIR set, writes the light variants as PPM files.
+    #[test]
+    fn dump_light_previews() {
+        let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") else { return };
+        for (style, pals) in [(Style::Matrix, ["matrix", "violet", "crimson"]), (Style::Rain, ["matrix", "amber", "deep"]),
+                              (Style::Aquarium, ["lagoon", "deep", "tropical"])] {
+            for pal in pals {
+                let mut st = settings(style, pal);
+                st.light = true;
+                let mut f = fb(1920, 462);
+                Effect::new().render_at(&mut f, &st, style, 65, 12.0);
+                std::fs::write(
+                    format!("{dir}/light_{style:?}_{pal}.ppm"),
+                    [format!("P6\n{} {}\n255\n", f.width(), f.height()).into_bytes(), f.as_bytes().to_vec()].concat(),
+                ).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn light_variants_are_white_backgrounds_and_still_move() {
+        for style in [Style::Matrix, Style::Rain, Style::Aquarium] {
+            for pal in ["matrix", "amber", "lagoon", "deep", "neon"] {
+                for (w, h) in [(1920u32, 462u32), (462, 1920), (64, 64)] {
+                    let mut st = settings(style, pal);
+                    st.light = true;
+                    let mut a = fb(w, h);
+                    Effect::new().render_at(&mut a, &st, style, 65, 5.0);
+                    let mut b = fb(w, h);
+                    Effect::new().render_at(&mut b, &st, style, 65, 9.0);
+                    assert_ne!(a.as_bytes(), b.as_bytes(), "{style:?}/{pal} {w}x{h} light does not move");
+                    // the top-left corner (rain background / air) is nearly white
+                    let px = &a.as_bytes()[0..3];
+                    assert!(px.iter().all(|&v| v > 225), "{style:?}/{pal}: background {px:?} is not light");
+                    let mut d = fb(w, h);
+                    let mut dark = settings(style, pal);
+                    dark.light = false;
+                    Effect::new().render_at(&mut d, &dark, style, 65, 5.0);
+                    assert!(avg_luma(&a) > avg_luma(&d) + 40.0, "{style:?}/{pal}: light is not lighter");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn light_aquarium_water_is_darker_than_the_air_and_the_surface_shows() {
+        let mut st = settings(Style::Aquarium, "lagoon");
+        st.light = true;
+        let mut f = fb(1920, 462);
+        Effect::new().render_at(&mut f, &st, Style::Aquarium, 65, 3.0);
+        let sum = |y: usize| {
+            let o = (y * 1920 + 700) * 3;
+            f.as_bytes()[o..o + 3].iter().map(|&v| v as u32).sum::<u32>()
+        };
+        assert!(sum(5) > sum(400) + 120, "air {} vs deep water {}", sum(5), sum(400));
+        // somewhere between the two there is a distinct edge (a pixel darker than both sides)
+        let edge = (0..462).map(sum).min().unwrap();
+        assert!(edge < sum(5) - 150);
     }
 }

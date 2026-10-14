@@ -331,6 +331,7 @@ fn print_help() {
          \x20\x20--effect-palette <P>    pastel | fluo | neon | candy | sunset | ocean | aurora | fire | forest | ice | mono | rainbow |\n         \x20\x20                          matrix | amber | violet | crimson | snow (one-colour, for matrix/rain) |\n         \x20\x20                          lagoon | deep | tropical (for aquarium) | all\n\
          \x20\x20--effect-colors <C>     Own colors: 2+ colors, e.g. #FF0080,#00FFFF (used when --effect-palette is not set)\n\
          \x20\x20--effect-speed <0-100>, --effect-scale <25-400>, --effect-brightness <0-100>, --effect-fps <1-30>, --effect-level <0-100> (aquarium: how high the water is)\n\
+         \x20\x20--effect-theme <dark|light>  matrix / rain / aquarium on a dark (default) or a white background\n\
          \x20\x20                          (defaults: 30, 100, 40, 8); --effect-palette-interval <SEC> rotates several palettes\n\
          \x20\x20--music-stats <list>      Music screen footer: cpu, gpu, ram, net, disk, time, uptime, all or none (default: cpu,gpu,ram)\n\
          \x20\x20--music-bg <gradient|blur|color|solid|none>  Music screen background (default: gradient)\n\
@@ -734,7 +735,7 @@ const OVERRIDE_KEYS: &[&str] = &[
     "music_bg_blur", "music_bg_fit", "music_bg_color", "music_stats", "music_spectrum_color",
     "pixel_game", "pixel_game_hero", "pixel_game_height", "pixel_game_hud",
     "background_effect", "effect_palette", "effect_colors", "effect_palette_interval",
-    "effect_speed", "effect_scale", "effect_brightness", "effect_fps", "effect_level",
+    "effect_speed", "effect_scale", "effect_brightness", "effect_fps", "effect_level", "effect_theme",
     "panel", "panel_size",
 ];
 
@@ -1125,8 +1126,21 @@ fn parse_effect(file: &ConfigFile) -> anyhow::Result<effect::Settings> {
     };
     e.speed = ranged("effect_speed", e.speed, 0, 100)?;
     e.scale = ranged("effect_scale", e.scale, 25, 400)?;
-    // water needs more light than the other styles to look like water
-    let default_brightness = if e.style == Some(effect::Style::Aquarium) { 65 } else { e.brightness };
+    e.light = match file.get("effect_theme").map(|v| v.trim().to_ascii_lowercase()) {
+        None => false,
+        Some(v) => match v.as_str() {
+            "dark" | "scuro" | "black" | "nero" | "" => false,
+            "light" | "chiaro" | "white" | "bianco" => true,
+            _ => anyhow::bail!("effect_theme: '{v}' not valid (dark | light)"),
+        },
+    };
+    // water needs more light than the other styles to look like water, and the light
+    // variants need strong enough colors to stand out on white
+    let default_brightness = match e.style {
+        Some(effect::Style::Aquarium) => 65,
+        Some(effect::Style::Matrix | effect::Style::Rain) if e.light => 65,
+        _ => e.brightness,
+    };
     e.brightness = ranged("effect_brightness", default_brightness, 0, 100)?;
     e.fps = ranged("effect_fps", e.fps, 1, 30)?;
     e.level = ranged("effect_level", e.level, 0, 100)?;
@@ -3793,6 +3807,16 @@ mod layout_tests {
         // the other styles keep their own default brightness
         assert_eq!(e("background_effect = plasma\n").unwrap().brightness, 40);
         assert!(e("effect_level = 101\n").is_err());
+        // the light (white) variant
+        let l = e("background_effect = aquarium\neffect_theme = light\n").unwrap();
+        assert!(l.light && l.brightness == 65);
+        assert!(!a.light);
+        assert!(e("background_effect = matrix\neffect_theme = chiaro\n").unwrap().light);
+        assert_eq!(e("background_effect = matrix\neffect_theme = light\n").unwrap().brightness, 65);
+        assert_eq!(e("background_effect = matrix\n").unwrap().brightness, 40);
+        assert!(!e("effect_theme = dark\n").unwrap().light);
+        assert!(e("effect_theme = pink\n").is_err());
+        assert!(is_override_key("effect_theme"));
         assert!(is_override_key("effect_level"));
     }
 

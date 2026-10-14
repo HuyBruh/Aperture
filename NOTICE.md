@@ -62,6 +62,8 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
 - Added an **aquarium** background (`background_effect = aquarium`): a side view of
   the water with a moving, clearly visible surface, light rays, caustics and bubbles; the
   water level is adjustable (`effect_level`) and there are three water color presets.
+- Added a **light (white) variant** of the matrix, rain and aquarium backgrounds
+  (`effect_theme = light`).
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
   (lossless PNG), a **console-hide** option, and an adaptive idle/active FPS
   system.

@@ -162,6 +162,7 @@ speed and the brightness.
 | `effect_scale` | `--effect-scale` | `25`-`400` % (size of the features; bigger = larger, calmer shapes) | `100` |
 | `effect_brightness` | `--effect-brightness` | `0`-`100` | `40` |
 | `effect_fps` | `--effect-fps` | `1`-`30` | `8` |
+| `effect_theme` | `--effect-theme` | `dark` / `light` (`matrix`, `rain` and `aquarium`: a white background instead of a dark one; the other styles ignore it) | `dark` |
 | `effect_level` | `--effect-level` | `0`-`100` % (`aquarium` only: how high the water reaches; `0` empty, `100` full) | `50` |
 
 - **Styles** (`background_effect`): `plasma` is the classic demoscene look (a
@@ -190,6 +191,22 @@ speed and the brightness.
   `effect_brightness`, the aquarium uses `65` instead of `40` (water needs more light to look
   like water). Cost: about 5 ms per frame, a bit more than the soft styles; lower
   `effect_fps` to 5 if you want it lighter.
+- **Light (white) variants** (`effect_theme = light`): `matrix` and `rain` become dark
+  characters / streaks on a white page (the tails fade into the white; a faint tint of the
+  palette is added to it), and the `aquarium` becomes a white room with pale water that gets
+  deeper in color towards the bottom, a dark edge on the surface so it still stands out, white
+  rays and caustics. The same palettes are used (`matrix` green, `amber`, `violet`, `crimson`,
+  `lagoon`, `deep`, `tropical`, …), and `effect_brightness` now sets how saturated they are
+  (higher = stronger colors; `65` by default in the light variants, `40` for the dark
+  `matrix` / `rain`). Remember to give the text on top a dark color (`clock_color`, `text_color`).
+
+  ```ini
+  background_effect = aquarium
+  effect_theme = light
+  effect_palette = lagoon
+  clock_color = #14323C
+  text_color = #14323C
+  ```
 - **Rain colors**: if you set no palette, `matrix` and `rain` are green. One-colour
   presets made for them: `matrix` (green, also `green` / `verde`), `amber` (old
   terminal), `violet`, `crimson` and `snow` (white). Any other palette works too

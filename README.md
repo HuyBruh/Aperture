@@ -156,6 +156,11 @@ Also settable in `trofeo.conf` (see `trofeo.conf.example`) or via CLI:
   high the water reaches; colors `lagoon`, `deep` and `tropical` (`--effect-palette`).
 
   ![Aquarium background in lagoon, deep and tropical colors](img/background-aquarium.png)
+- `--effect-theme light`: the **white** variant of `matrix`, `rain` and `aquarium` (a
+  white background with colored characters / streaks, or a white room with pale water);
+  `dark` is the default.
+
+  ![Light variants of matrix, rain and aquarium](img/background-light.png)
 
 ### What to show, where, and colors
 
