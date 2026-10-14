@@ -32,7 +32,9 @@ mod openrgb_sync;
 mod pawnio;
 mod effect;
 mod pixel_game;
+mod smooth_font;
 mod spectrum;
+mod tiles;
 mod ticker;
 mod weather;
 mod weather_icon;
@@ -754,7 +756,7 @@ fn item_key(key: &str) -> Option<(usize, &str)> {
 }
 
 fn is_override_key(key: &str) -> bool {
-    OVERRIDE_KEYS.contains(&key) || item_key(key).is_some() || key == "net_unit" || key == "mem_unit" || key == "ram_unit" || key == "nowplaying_width" || key == "nowplaying_label" || key == "clock_backdrop" || key == "clock_time_size" || key == "clock_date_size" || key == "weather_unit" || key == "ticker_position" || key == "ticker_size" || key == "ticker_color" || key == "ticker_backdrop" || key == "ticker_width" || key == "percent_decimals"
+    OVERRIDE_KEYS.contains(&key) || item_key(key).is_some() || key == "net_unit" || key == "mem_unit" || key == "ram_unit" || key == "nowplaying_width" || key == "nowplaying_label" || key == "clock_backdrop" || key == "clock_time_size" || key == "clock_date_size" || key == "weather_unit" || key == "ticker_position" || key == "ticker_size" || key == "ticker_color" || key == "ticker_backdrop" || key == "ticker_width" || key == "percent_decimals" || key == "tiles" || key.starts_with("tiles_") || (key.starts_with("tile_") && key.ends_with("_color"))
 }
 
 /// Style for a single item of the info block.
@@ -999,6 +1001,7 @@ fn parse_ui_options(file: &ConfigFile) -> anyhow::Result<UiOptions> {
         music_stats_set: file.get("music_stats").is_some(),
         music_progress: file.get_bool("music_progress").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(true),
         effect: parse_effect(file)?,
+        tiles: tiles::parse(file)?,
     })
 }
 
@@ -1612,6 +1615,7 @@ fn main() -> anyhow::Result<()> {
     let mut layouts_started = Instant::now();
     let mut layout_index = usize::MAX;
     let mut layout_marquee = Marquee::new();
+    let mut tiles_screen = tiles::TilesScreen::new();
     let Display { mut resolution, mut background, mut idle_fps_effective, mut composite, mut fb, mut ui } =
         build_display(&config)?;
     let _ = resolution;
@@ -1769,6 +1773,16 @@ fn main() -> anyhow::Result<()> {
         } else {
             config.active_fps
         };
+        // The tiles screen (see `tiles.rs`) with an animated background of its own needs a
+        // steady frame rate even while idle.
+        let tiles_wanted = is_idle
+            && active_def.is_some_and(|d| d.name == "tiles")
+            && !(gaming_now && ui_show.dashboard);
+        let target_fps = match (tiles_wanted, opts().tiles.bg) {
+            (true, tiles::BgMode::Effect) => target_fps.max(config.ui.effect.fps as f32),
+            (true, tiles::BgMode::Image) => target_fps.max(config.active_fps),
+            _ => target_fps,
+        };
         let target_frame_time = Duration::from_secs_f32(1.0 / target_fps);
 
         let bars = compute_bars(&samples, &hann, fft.as_ref(), &bar_bins, &mut running_max);
@@ -1873,6 +1887,25 @@ fn main() -> anyhow::Result<()> {
             None => config.color_mode,
         };
 
+        // Data of the panel layouts (also used by the tiles screen, which paints on `fb`).
+        let widget_data = (is_idle && active_def.is_some() && !(gaming_mode && ui_show.dashboard)).then(|| layouts::WidgetData {
+            cpu_pct: sys.global_cpu_info().cpu_usage(),
+            cpu_temp: latest_cpu_temp,
+            cpu_power: latest_cpu_power,
+            cpu_mhz: latest_cpu_mhz,
+            gpu_pct: latest_gpu_percent,
+            gpu_temp: latest_gpu_data.temp_edge_c,
+            gpu_power: latest_gpu_data.power_w,
+            fps: latest_gpu_data.fps,
+            used_mb: sys.used_memory() / 1024 / 1024,
+            total_mb: sys.total_memory() / 1024 / 1024,
+            net_kb: latest_net_kb,
+            disk_mb: latest_disk_mb,
+            now_playing: now_playing_title.clone(),
+            weather: latest_weather.clone(),
+            ticker: latest_ticker.clone(),
+        });
+        let tiles_now = tiles_wanted && widget_data.is_some();
         // Base: a background (image/gif/video) or a solid color; the interface goes
         // on the `ui` buffer (transparent) when there are margins or a background.
         if composite {
@@ -1884,6 +1917,17 @@ fn main() -> anyhow::Result<()> {
             ui.clear(UI_KEY.0, UI_KEY.1, UI_KEY.2);
         } else {
             fb.clear(0x08, 0x08, 0x10);
+        }
+        // The tiles screen blends its tiles into `fb` itself (they are semi-transparent with
+        // rounded, anti-aliased corners, which the keyed `ui` buffer cannot express).
+        if let (true, Some(wd)) = (tiles_now, widget_data.as_ref()) {
+            let area = if composite {
+                (config.margins.left, config.margins.top, ui.width(), ui.height())
+            } else {
+                (0, 0, fb.width(), fb.height())
+            };
+            let tiles_env = tiles::Env { fps: config.active_fps, ffmpeg: config.ffmpeg.as_deref(), effect: &config.ui.effect };
+            tiles_screen.draw(&mut fb, area, wd, color_mode, &opts().tiles, &tiles_env);
         }
         let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };
         if gaming_mode && ui_show.dashboard {
@@ -1913,25 +1957,8 @@ fn main() -> anyhow::Result<()> {
                 music.draw(target, t, &bar_heights, peak_tracker.peaks(), &opts());
             }
         } else if is_idle {
-            if let Some(def) = active_def {
-                let wd = layouts::WidgetData {
-                    cpu_pct: sys.global_cpu_info().cpu_usage(),
-                    cpu_temp: latest_cpu_temp,
-                    cpu_power: latest_cpu_power,
-                    cpu_mhz: latest_cpu_mhz,
-                    gpu_pct: latest_gpu_percent,
-                    gpu_temp: latest_gpu_data.temp_edge_c,
-                    gpu_power: latest_gpu_data.power_w,
-                    fps: latest_gpu_data.fps,
-                    used_mb: sys.used_memory() / 1024 / 1024,
-                    total_mb: sys.total_memory() / 1024 / 1024,
-                    net_kb: latest_net_kb,
-                    disk_mb: latest_disk_mb,
-                    now_playing: now_playing_title.clone(),
-                    weather: latest_weather.clone(),
-                    ticker: latest_ticker.clone(),
-                };
-                layouts::draw_layout(target, def, &wd, color_mode, &mut layout_marquee);
+            if let (Some(def), Some(wd)) = (active_def, widget_data.as_ref()) {
+                layouts::draw_layout(target, def, wd, color_mode, &mut layout_marquee);
             } else if ui_show.clock {
                 draw_idle_clock(target, color_mode);
             }
@@ -2186,6 +2213,8 @@ struct UiOptions {
     /// Animated background effect (plasma, aurora, lava, waves) in place of an image,
     /// and on the music screen when `music_bg = effect` (see `effect.rs`).
     effect: effect::Settings,
+    /// The `tiles` layout: which tiles, font, colors and background (see `tiles.rs`).
+    tiles: tiles::Settings,
 }
 
 impl Default for UiOptions {
@@ -2236,6 +2265,7 @@ impl Default for UiOptions {
             pixel_game_hud: true,
             music_progress: true,
             effect: effect::Settings::default(),
+            tiles: tiles::Settings::default(),
         }
     }
 }
@@ -3673,6 +3703,32 @@ mod layout_tests {
         assert_eq!(game_strip_height(120, 46), 0); // too short a content area
         assert!(game_strip_height(352, 46) >= 84 && game_strip_height(1700, 46) <= 260);
         TEST_OPTS.with(|t| *t.borrow_mut() = None);
+    }
+
+    #[test]
+    fn tiles_options_come_from_the_config_and_the_command_line() {
+        let o = parse_ui_options(&ConfigFile::parse(
+            "layout = tiles:20, weather:5\ntiles = clock, cpu:ring, gpu_temp\ntiles_font = pixel\ntiles_bar_color = #00C8FF, #FF0080\ntile_cpu_color = #FFC800\ntiles_bg = gradient\ntiles_bg_color = #102030, #302010\n",
+        ).unwrap()).unwrap();
+        assert_eq!(o.layouts.len(), 2);
+        assert_eq!(o.layouts[0].0.name, "tiles");
+        assert!(!o.layouts[0].0.standard && o.layouts[0].0.rows.is_empty());
+        assert_eq!(o.tiles.rows[0].len(), 3);
+        assert_eq!(o.tiles.font, tiles::FontStyle::Pixel);
+        assert_eq!(o.tiles.bg, tiles::BgMode::Gradient);
+        assert_eq!(o.tiles.bar_color(tiles::Kind::Cpu), &tiles::BarColor::Colors(vec![(255, 200, 0)]));
+        assert_eq!(o.tiles.bar_color(tiles::Kind::Ram), &tiles::BarColor::Colors(vec![(0, 200, 255), (255, 0, 128)]));
+        // not configured: the defaults (smooth font, global background, bars chosen by level)
+        let d = parse_ui_options(&ConfigFile::parse("").unwrap()).unwrap().tiles;
+        assert_eq!((d.font, d.bg, d.bar.clone()), (tiles::FontStyle::Smooth, tiles::BgMode::Global, tiles::BarColor::Auto));
+        // keys that are also command-line flags
+        for k in ["tiles", "tiles_font", "tiles_bg", "tiles_bar_color", "tile_cpu_color", "tile_gpu_temp_color"] {
+            assert!(is_override_key(k), "{k}");
+        }
+        // a mistake is reported (the config reload then keeps the previous settings)
+        for bad in ["tiles = cpu, bogus", "tiles_font = comic", "tile_ram_color = notacolor", "tiles_bg = image"] {
+            assert!(parse_ui_options(&ConfigFile::parse(bad).unwrap()).is_err(), "{bad}");
+        }
     }
 
     #[test]

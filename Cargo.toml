@@ -1,6 +1,6 @@
 [package]
 name = "trofeo_lcd"
-version = "1.0.50"
+version = "1.0.38"
 edition = "2021"
 description = "A lightweight open-source driver/monitor for the Thermalright Trofeo Vision 9.16 LCD (LY protocol, USB 0416:5408), based on reverse-engineering from thermalright-trcc-linux"
 license = "GPL-3.0-or-later"
@@ -11,6 +11,9 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # Pure-Rust deflate/zlib compression (miniz_oxide backend — no C toolchain
 # needed) for the PNG screenshot files in src/png_save.rs.
 flate2 = "1"
+# Smooth (anti-aliased) text for the `tiles` layout (`tiles_font = smooth`): pure-Rust
+# TrueType rasterizer; the embedded font is Poppins (SIL OFL, see assets/OFL.txt).
+fontdue = { version = "0.9", default-features = false }
 jpeg-encoder = "0.5"
 # Background decoding (JPEG/PNG/BMP/GIF) for the `background` option; videos
 # go through external ffmpeg instead (see src/background.rs).

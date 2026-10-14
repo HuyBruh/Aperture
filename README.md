@@ -54,6 +54,9 @@ system status (CPU/GPU/RAM/temp) stays readable while playing.
 - **Pixel game** under the clock: a self-playing pixel-art platformer (a knight
   or a cat) that reacts to CPU load, music, network/disk bursts, the hour, and
   the real weather and time of day.
+- **Tiles layout**: a modern glass dashboard (rounded tiles with big numbers, bars and
+  rings) where you pick the tiles, the font (smooth or pixel), the bar colors and the
+  background (see [Tiles layout](#tiles-layout-glass-dashboard)).
 - **Animated backgrounds** instead of an image: plasma, aurora, lava lamp or
   silk waves, with colors from pastel to fluorescent (or your own), adjustable
   speed and brightness, at almost no CPU cost.
@@ -320,7 +323,7 @@ and more examples (combining feeds and files, styling the chyron, etc.).
 
 ### Preset layouts
 
-`layout = default | cpu-gpu | temps | overview | grid6 | clock-center | io | music | gaming | cpu | gpu | weather | news`
+`layout = default | cpu-gpu | temps | overview | grid6 | clock-center | io | music | gaming | cpu | gpu | weather | news | tiles`
 (`--layout list` prints them). All of them, shown here over a sample background
 (`background = img/sample_background.jpg`, `panel_opacity = 60`):
 
@@ -343,6 +346,39 @@ screen (status lines, spectrum, big clock) and can be part of the rotation (`lay
 behind the status lines and big clock (same opacity); `panel_opacity = 0-100`
 makes panels see-through over the background. Big panels replace the clock; portrait stacks
 them vertically. See `trofeo.conf.example`.
+
+### Tiles layout (glass dashboard)
+
+![tiles](img/layout-tiles.png)
+
+`layout = tiles` shows rounded, semi-transparent tiles with big values, a progress
+bar or a ring and an optional second value — the clock, CPU/GPU load, temperatures
+and watts, RAM, network, disk, FPS, weather and the playing track. You choose
+**which tiles** to show and in which rows, the **font** (anti-aliased "smooth" or the
+classic pixel font), the **colors** of the bars and rings (all of them, or one
+tile at a time) and what is **behind** the tiles:
+
+```ini
+layout = tiles
+# Rows are separated by "|"; ":ring" draws a ring instead of a bar,
+# "clock:tall" makes the clock as tall as all the rows.
+tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring
+tiles_font = smooth                         # smooth | pixel
+tiles_theme = dark                          # dark | light
+tiles_bar_color = #00C8FF, #FF0080          # all bars and rings: one color or a gradient (default: auto)
+tile_gpu_color = #FFC800                    # ...and one tile on its own
+tiles_bg = gradient                         # global | color | gradient | effect | image
+tiles_bg_color = #1B2A4A, #4A1B3A
+```
+
+![tiles looks](img/tiles-looks.png)
+
+Tiles: `clock cpu cpu_temp cpu_watt gpu gpu_temp gpu_watt ram net disk fps weather music`.
+Backgrounds: whatever the other screens use (`global`), a color, a gradient, the
+animated effects of [Animated background](#animated-background-plasma-aurora-lava-waves),
+or an image just for this screen. Works on 1920×462, 1920×400 and in portrait; the
+tiles are redrawn only when something changes, so even an animated background costs
+little. All the keys are in the [options guide](./OPTIONS_GUIDE.md#tiles-layout).
 
 ### Live reload
 
@@ -405,6 +441,7 @@ Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
 - `src/media.rs` + `src/music_screen.rs` — now-playing info (Windows media controls / `playerctl`) and the Spotify-style music screen.
 - `src/pixel_game.rs` — the self-playing pixel-art platformer under the clock.
 - `src/effect.rs` — the animated background effects (plasma, aurora, lava, waves).
+- `src/tiles.rs` + `src/smooth_font.rs` + `assets/` — the tiles layout and its anti-aliased text (embedded Poppins font, SIL OFL: see `assets/OFL.txt`).
 - `src/main.rs` — main loop: audio → FFT → EQ bars → send to screen.
 
 ## Performance
@@ -441,6 +478,8 @@ idle FPS unchanged) to make it lighter still.
 - USB protocol reverse-engineering:
   [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux)
   by Lexonight1.
+- Smooth text in the tiles layout uses a subset of the [Poppins](https://github.com/itfoundry/Poppins) font
+  (© The Poppins Project Authors, SIL Open Font License 1.1 — `assets/OFL.txt`).
 - See **[NOTICE.md](./NOTICE.md)** for what has changed in this fork.
 
 ## License

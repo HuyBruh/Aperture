@@ -133,6 +133,7 @@ language = en
 #   gpu           GPU only, big
 #   weather       Current weather, big: temperature, condition icon and city
 #   news          Latest headlines from ticker_source, scrolling
+#   tiles         Rounded glass tiles with bars/rings you choose (see "Tiles layout" below)
 # With a layout, the top info block and the spectrum are off (the panels already
 # show the data); "show = nowplaying, time" adds info lines, "hide" removes them.
 # The automatic dashboard while gaming stays on (hide = dashboard to disable it).
@@ -155,6 +156,28 @@ language = en
 # layout_spectrum = false    # true = show the spectrum while music is playing
 # layout_hold_on_music = false  # true = while music plays, stay on the FIRST layout of the
 #                               # list (no rotation); rotation restarts when the music stops
+
+# --- Tiles layout (layout = tiles) -------------------------------------------
+# Rounded glass tiles with big values, bars and rings. See OPTIONS_GUIDE.md "Tiles layout".
+# layout = tiles
+# Which tiles: clock cpu cpu_temp cpu_watt gpu gpu_temp gpu_watt ram net disk fps weather music
+#   ":ring" = ring instead of bar, "|" = new row, "clock:tall" = as tall as all the rows.
+# tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring
+# tiles_font = smooth           # smooth (anti-aliased) | pixel (the classic font)
+# tiles_theme = dark            # dark | light
+# tiles_opacity = 66            # 0-100: how see-through the tiles are
+# tiles_radius = 22             # corner roundness in px (0 = square)
+# tiles_gap = 14                # px between the tiles
+# Colors of the bars and rings: auto (green-yellow-red by level), one color, or a gradient.
+# tiles_bar_color = #00C8FF, #FF0080
+# tile_gpu_color = #FFC800      # one tile on its own: tile_<name>_color (same names as the tiles)
+# What is behind the tiles: global (the usual background) | color | gradient | effect | image
+# tiles_bg = gradient
+# tiles_bg_color = #1B2A4A, #4A1B3A
+# tiles_bg_image = C:\Pictures\glass.jpg   # for tiles_bg = image
+# tiles_bg_dim = 0              # 0-100: darkens the effect / image
+# tiles_clock_seconds = false
+# tiles_cpu_watt_max = 200      # watts at which a bar/ring is full (also tiles_gpu_watt_max)
 
 # --- Music screen ----------------------------------------------------------------
 # true = while a track plays, show a now-playing card: album cover on the left (with a

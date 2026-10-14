@@ -123,6 +123,13 @@ pub const LAYOUTS: &[LayoutDef] = &[
         rows: &[&[(Gpu, 1)]],
     },
     LayoutDef {
+        name: "tiles",
+        description: "Rounded glass tiles with big values, bars and rings (choose them with `tiles = ...`)",
+        standard: false,
+        cols: 1,
+        rows: &[],
+    },
+    LayoutDef {
         name: "weather",
         description: "Current weather, large: temperature, condition icon and city",
         standard: false,

@@ -774,11 +774,12 @@ background = C:\Pictures\bg.jpg
 
 Names (`trofeo_lcd.exe --layout list` prints these with descriptions):
 `default, default2, cpu-gpu, temps, overview, grid6, clock-center, io, music,
-gaming, cpu, gpu, weather, news`.
+gaming, cpu, gpu, tiles, weather, news`.
 
 - `default` = the standard screen (status lines, spectrum, big clock).
 - `default2` = the standard screen with [per-item](#per-item-control) styling.
 - `news` = the [ticker](#ticker)'s headlines, big and scrolling, full screen.
+- `tiles` = rounded glass [tiles](#tiles-layout) you choose yourself, with bars or rings.
 - Everything else replaces the clock with big panel(s); the top status block
   and spectrum turn off (use `show = nowplaying, time` etc. to add lines back
   on top of a panel layout; the game dashboard stays on regardless — turn it
@@ -813,6 +814,102 @@ layout_interval = 40
 # Rotate the classic screen with the custom per-item one:
 layout = default, default2
 layout_interval = 20
+```
+
+## Tiles layout
+
+`layout = tiles` replaces the clock with rounded, semi-transparent **tiles**: a big value,
+a small label, an optional second value and a progress bar or a ring. It adapts to
+1920×462, 1920×400 and portrait, and can rotate with other layouts
+(`layout = tiles:30, weather:5`). The other layouts' keys still apply where they make
+sense (`language`, `percent_decimals`, `mem_unit`, `weather_unit`, `margin_*`, `brightness`).
+
+| Key | CLI | Values | Default |
+|---|---|---|---|
+| `tiles` | `--tiles` | list of tiles, `\|` starts a new row, see below | `clock:tall, cpu_temp, gpu_temp \| ram:ring, cpu:ring, gpu:ring` |
+| `tiles_font` | `--tiles-font` | `smooth` (anti-aliased) or `pixel` (the classic font) | `smooth` |
+| `tiles_theme` | `--tiles-theme` | `dark`, `light` | `dark` |
+| `tiles_color` | `--tiles-color` | tile fill color | from the theme |
+| `tiles_opacity` | `--tiles-opacity` | `0`-`100` (how see-through the tiles are) | `66` dark / `52` light |
+| `tiles_text_color` | `--tiles-text-color` | main text color | from the theme |
+| `tiles_radius` | `--tiles-radius` | `0`-`80` px (corner roundness) | automatic |
+| `tiles_gap` | `--tiles-gap` | `0`-`60` px between tiles and from the edge | `14` |
+| `tiles_bar_color` | `--tiles-bar-color` | `auto`, one color, or several colors (a gradient) | `auto` |
+| `tile_<name>_color` | `--tile-<name>-color` | same, for one tile only (wins over `tiles_bar_color`) | — |
+| `tiles_bg` | `--tiles-bg` | `global`, `color`, `gradient`, `effect`, `image` | `global` |
+| `tiles_bg_color` | `--tiles-bg-color` | one color (`color`) or two-three colors (`gradient`) | dark blue to plum |
+| `tiles_bg_image` | `--tiles-bg-image` | picture / GIF / video for `tiles_bg = image` | — |
+| `tiles_bg_dim` | `--tiles-bg-dim` | `0`-`100`: darkens the effect / image | `0` |
+| `tiles_clock_seconds` | `--tiles-clock-seconds` | `true`/`false` | `false` |
+| `tiles_cpu_watt_max`, `tiles_gpu_watt_max` | | watts at which a bar/ring is full | `200`, `400` |
+| `tiles_fps_max` | | FPS at which a bar/ring is full | `240` |
+
+**Choosing the tiles.** `tiles` is a comma-separated list; each entry is a name and,
+optionally, `:ring` (a ring instead of a bar), `:bar`, and — for the *first* tile only —
+`:tall` (it spans every row, like the clock in the picture). A `|` starts a new row; with
+no `|` everything is one row. At most 16 tiles. In portrait the tiles are stacked in
+one column (two when there are more than six) and `|`/`:tall` are ignored.
+
+| Tile | Shows | Bar / ring |
+|---|---|---|
+| `clock` | time, weekday and date | — |
+| `cpu` | CPU load (and frequency) | load |
+| `cpu_temp` | CPU temperature (and load) | temperature (100 °C = full) |
+| `cpu_watt` | CPU power | `tiles_cpu_watt_max` |
+| `gpu`, `gpu_temp`, `gpu_watt` | the same for the GPU | |
+| `ram` | memory use (`mem_unit` applies) | use |
+| `net` | download speed (and upload) | — |
+| `disk` | read speed (and write) | — |
+| `fps` | FPS of the game (and frame time) | `tiles_fps_max` |
+| `weather` | temperature, icon, city and condition | — |
+| `music` | the playing title (cut with "..." when long) | — |
+
+A tile without a value (for instance `cpu_watt` when the CPU does not report power)
+shows `--`. A ring on a tile that has no bar value (`net`, `disk`, `clock`...) is
+drawn as a plain tile.
+
+**Colors of the bars and rings.** `auto` colors them green → yellow → red by level (or
+with your `color`). A single color is solid; two or more form a gradient along the
+bar or around the ring. `tile_<name>_color` (`tile_cpu_color`, `tile_gpu_temp_color`,
+`tile_ram_color`, `tile_cpu_watt_color` ...) overrides `tiles_bar_color` for that one
+tile; `tile_ram_color = auto` brings a single tile back to level colors:
+
+```ini
+tiles_bar_color = #00C8FF, #FF0080     # everything: cyan to pink
+tile_gpu_color = #FFC800               # but the GPU tile in amber
+tile_ram_color = auto                  # and RAM by level
+```
+
+**Font.** `smooth` draws anti-aliased text in mixed case (Poppins, embedded in the
+program); `pixel` uses the same blocky capitals as the rest of the program. Both fit the
+same tiles; pixel text shows `C` instead of `°`.
+
+**Background.**
+
+- `global` (default): the tiles sit over whatever the other screens use —
+  `background` (image/video), `background_effect`, or the plain dark color.
+- `color`: `tiles_bg_color = #1B2A4A`.
+- `gradient`: `tiles_bg_color = #1B2A4A, #4A1B3A` (two or three colors, diagonal).
+- `effect`: the animated effect of [Animated background effect](#animated-background-effect-plasma-aurora-lava-waves)
+  (`background_effect` picks the style, `effect_palette`/`effect_speed`/... the look; plasma
+  if none is set), only behind the tiles.
+- `image`: `tiles_bg_image = C:\Pictures\glass.jpg` (JPEG, PNG, BMP, GIF; videos need ffmpeg,
+  as for `background`); `tiles_bg_dim` darkens it.
+
+For the "glass" look of a light picture use `tiles_theme = light` and a lower
+`tiles_opacity`. The cost is small: the tiles are drawn on a transparent layer that is
+only redrawn when a value, the time or a setting changes (about once a second); every
+other frame just lays it over the background. An animated `effect`/`image` background
+makes the screen refresh at `effect_fps` / the active fps instead of the idle fps.
+
+```ini
+layout = tiles
+tiles = clock:tall, cpu_temp, gpu_temp | ram:ring, cpu:ring, gpu:ring
+tiles_theme = light
+tiles_opacity = 45
+tiles_bg = gradient
+tiles_bg_color = #9FC5E8, #D9B8F0
+tiles_bar_color = #4B7BEC, #8E44AD
 ```
 
 ## Screenshot hotkey — command-line only *(restart required)*

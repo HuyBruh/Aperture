@@ -43,7 +43,7 @@ use rusb::{Context, DeviceHandle, UsbContext};
 use std::time::Duration;
 use thiserror::Error;
 
-mod font;
+pub mod font;
 pub mod dxgi_capture;
 pub mod background;
 pub mod config;
