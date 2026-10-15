@@ -802,7 +802,7 @@ fn draw_time(p: &mut Painter, r: R, sc: &Scale, d: &Data, now: &chrono::DateTime
     let wy = lb + 14.0 * k;
     let night = !(6..19).contains(&now.hour());
     weather_icon(p, x + pd - 3.0 * k, wy, isz, wt.icon, night);
-    let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit));
+    let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit).round() + 0.0);
     let ttx = x + pd + isz + 12.0 * k;
     p.text(ttx, wy + isz / 2.0 + sc.l / 2.0, &temp, sc.l, W::Medium, th().text, 255);
     let cond = crate::tiles::nice_case(weather_icon::condition_name(wt.icon));
@@ -824,8 +824,8 @@ fn draw_time(p: &mut Painter, r: R, sc: &Scale, d: &Data, now: &chrono::DateTime
             let dw = spaced(p, cx, db, &dn, sc.s, W::Medium, th().dim, 1.2 * k);
             let is = 22.0 * k;
             weather_icon(p, cx + dw + 4.0 * k, db - sc.s / 2.0 - is / 2.0, is, f.icon, false);
-            let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit));
-            let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit));
+            let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit).round() + 0.0);
+            let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit).round() + 0.0);
             let hw = p.text(cx, tb, &hi, sc.m, W::Medium, th().text, 255);
             p.text(cx + hw + 3.0 * k, tb, &lo, sc.s, W::Regular, th().dim, 255);
         }
@@ -1545,7 +1545,7 @@ fn clock_parts(now: &chrono::DateTime<Local>) -> (String, String, String) {
 
 fn weather_text(d: &Data) -> Option<(WeatherIcon, String, String)> {
     let wt = d.weather?;
-    let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit));
+    let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit).round() + 0.0);
     let cond = crate::tiles::nice_case(weather_icon::condition_name(wt.icon));
     let city = wt.city.clone().unwrap_or_default();
     let line = if city.is_empty() { cond } else { format!("{cond} \u{b7} {city}") };
@@ -1841,8 +1841,8 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
             let dn = i18n::weekday_short(f.weekday).to_uppercase();
             let dw = spaced(p, cx, fy, &dn, sc.s, W::Medium, th().dim, 1.4 * k);
             weather_icon(p, cx + dw + 8.0 * k, fy - sc.s / 2.0 - 12.0 * k, 24.0 * k, f.icon, false);
-            let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit));
-            let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit));
+            let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit).round() + 0.0);
+            let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit).round() + 0.0);
             let ty = fy + 12.0 * k + sc.m * 1.2;
             let hw = p.text(cx, ty, &hi, sc.m * 1.2, W::Medium, th().text, 255);
             p.text(cx + hw + 8.0 * k, ty, &lo, sc.m, W::Regular, th().dim, 255);
