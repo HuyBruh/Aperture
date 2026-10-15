@@ -1519,6 +1519,13 @@ fn config_stamp(explicit: Option<&std::path::Path>) -> Option<(std::path::PathBu
 }
 
 fn main() -> anyhow::Result<()> {
+    // `--keep-alive`: run the display as a child process and start it again whenever it
+    // stops with an error (LCD unplugged or a USB hiccup, a crash), every 3 s, until it
+    // exits normally — so the LCD comes back by itself when the cable is plugged in again.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--keep-alive") {
+        return keep_alive(args.into_iter().filter(|a| a != "--keep-alive").collect());
+    }
     let diag_mode = std::env::args().any(|a| a == "--diag");
     let mut config = parse_args()?;
     if diag_mode {
@@ -2211,6 +2218,36 @@ fn run_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<()> {
     std::fs::write(&req.path, png_save::encode(&fb))
         .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", req.path.display()))?;
     Ok(())
+}
+
+/// See `--keep-alive` in `main`.
+fn keep_alive(args: Vec<String>) -> anyhow::Result<()> {
+    let hide = args.iter().any(|a| a == "--hide-console");
+    // With a hidden console the child runs with no console at all (no window flashing
+    // at each restart), so it must not try to hide one itself.
+    let child_args: Vec<String> = if hide { args.iter().filter(|a| *a != "--hide-console").cloned().collect() } else { args.clone() };
+    #[cfg(windows)]
+    if hide {
+        let _ = hide_console_window();
+    }
+    let exe = std::env::current_exe()?;
+    loop {
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(&child_args);
+        #[cfg(windows)]
+        if hide {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            // no console: give the child valid (empty) standard handles to print to
+            cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        }
+        match cmd.status() {
+            Ok(s) if s.success() => return Ok(()),
+            Ok(s) => eprintln!("trofeo_lcd stopped ({s}): starting it again in 3 s..."),
+            Err(e) => eprintln!("could not start trofeo_lcd ({e}): trying again in 3 s..."),
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
 }
 
 /// The sample data of the preview (the program is not reading any sensor here).
