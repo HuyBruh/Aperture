@@ -1777,10 +1777,13 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         ("POWER", d.cpu_power.map_or("--".into(), |v| format!("{v:.0}")), "W".into(), th().text),
         ("CLOCK", d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0)), "GHz".into(), th().text),
         ("UPTIME", uv, uu, th().text),
+        match d.cpu_fan_rpm {
+            Some(rpm) => ("FAN", rpm.to_string(), "RPM".into(), th().text),
+            None => ("FAN", "--".into(), String::new(), th().dim),
+        },
     ];
-    if let Some(rpm) = d.cpu_fan_rpm {
-        cpu_stats.push(("FAN", rpm.to_string(), "RPM".into(), th().text));
-    }
+    let (iov, iou) = rate((d.disk_rate.0 + d.disk_rate.1) * 1024.0);
+    cpu_stats.push(("SSD I/O", iov, iou.to_string(), th().text));
     focus_section(p, r(0), sc, vcap, false, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
     // GPU: FPS has its own cell, it never replaces another value
     let g = d.gpu;
