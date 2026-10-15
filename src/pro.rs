@@ -1739,7 +1739,8 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, 
         let sx = x + (i % 2) as f32 * cw;
         let sy = top + (i / 2) as f32 * pitch;
         spaced(p, sx, sy + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
-        let cap = fit_vu(p, v, u, vcap, cw - 10.0 * k, W::Medium);
+        // a "A / B" pair is drawn a little smaller so both numbers fit
+        let cap = fit_vu(p, v, u, if l.contains(" / ") { vcap * 0.78 } else { vcap }, cw - 10.0 * k, W::Medium);
         value_unit(p, sx, sy + row_h, v, u, cap, W::Medium, *c);
     }
 }
@@ -1782,8 +1783,14 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
             None => ("FAN", "--".into(), String::new(), th().dim),
         },
     ];
-    let (iov, iou) = rate((d.disk_rate.0 + d.disk_rate.1) * 1024.0);
-    cpu_stats.push(("SSD I/O", iov, iou.to_string(), th().text));
+    let (dn, up) = d.net_kb;
+    let (nv, nu) = if dn.max(up) >= 1024.0 {
+        let f = |v: f64| if v >= 100.0 * 1024.0 { format!("{:.0}", v / 1024.0) } else { format!("{:.1}", v / 1024.0) };
+        (format!("{}/{}", f(dn), f(up)), "MB/s")
+    } else {
+        (format!("{dn:.0}/{up:.0}"), "KB/s")
+    };
+    cpu_stats.push(("DOWN / UP", nv, nu.to_string(), th().text));
     focus_section(p, r(0), sc, vcap, false, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
     // GPU: FPS has its own cell, it never replaces another value
     let g = d.gpu;
@@ -1804,15 +1811,15 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     focus_section(p, r(1), sc, vcap, false, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
     // memory + storage + network
     let ram_pct = if d.ram_total_mb > 0 { d.ram_used_mb as f32 * 100.0 / d.ram_total_mb as f32 } else { 0.0 };
-    let (dn, du) = rate(d.net_kb.0);
-    let (un, uu2) = rate(d.net_kb.1);
+    let (rv, ru) = rate(d.disk_rate.0 * 1024.0);
+    let (wv, wu) = rate(d.disk_rate.1 * 1024.0);
     let mem_stats = [
         ("USED", gb(d.ram_used_mb), "GB".to_string(), th().text),
         ("FREE", gb(d.ram_total_mb.saturating_sub(d.ram_used_mb)), "GB".into(), th().text),
         ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0))),
         ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
-        ("DOWN", dn, du.to_string(), th().text),
-        ("UP", un, uu2.to_string(), th().text),
+        ("READ", rv, ru.to_string(), th().text),
+        ("WRITE", wv, wu.to_string(), th().text),
     ];
     let side = format!("of {} GB", gb(d.ram_total_mb));
     focus_section(p, r(2), sc, vcap, false, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
