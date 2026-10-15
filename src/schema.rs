@@ -160,6 +160,7 @@ pub const LAYOUT_NAMES: &[(&str, &str, &str)] = &[
     ("cpu", "CPU only, big", "Solo CPU, grande"),
     ("gpu", "GPU only, big", "Solo GPU, grande"),
     ("tiles", "Glass tiles (choose them in the Tiles section)", "Tiles di vetro (si scelgono nella sezione Tiles)"),
+    ("pro", "Pro dashboard: CPU, GPU, RAM, SSD, network, now playing", "Dashboard pro: CPU, GPU, RAM, SSD, rete, brano"),
     ("weather", "Weather, big", "Meteo, grande"),
     ("news", "News headlines, scrolling", "Notizie scorrevoli"),
 ];

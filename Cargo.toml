@@ -109,3 +109,6 @@ libpulse-simple-binding = "2.28"
 # session, foreground_exe_name() will always return None (see the note in
 # that file).
 x11rb = "0.13"
+
+[profile.release]
+strip = true

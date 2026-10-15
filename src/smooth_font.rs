@@ -33,13 +33,43 @@ struct Fonts {
     light: Font,
     regular: Font,
     medium: Font,
+    /// A system font for the characters the embedded subset does not have
+    /// (Vietnamese, Greek, Cyrillic, ... in song titles). Windows only.
+    fallback: Option<Font>,
+    fallback_bold: Option<Font>,
+}
+
+fn system_font(names: &[&str]) -> Option<Font> {
+    #[cfg(windows)]
+    {
+        let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+        for n in names {
+            if let Ok(bytes) = std::fs::read(format!("{dir}\\Fonts\\{n}")) {
+                if let Ok(f) = Font::from_bytes(bytes, FontSettings::default()) {
+                    return Some(f);
+                }
+            }
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = names;
+        None
+    }
 }
 
 fn fonts() -> &'static Fonts {
     static F: OnceLock<Fonts> = OnceLock::new();
     F.get_or_init(|| {
         let load = |data: &[u8]| Font::from_bytes(data, FontSettings::default()).expect("embedded font is valid");
-        Fonts { light: load(LIGHT), regular: load(REGULAR), medium: load(MEDIUM) }
+        Fonts {
+            light: load(LIGHT),
+            regular: load(REGULAR),
+            medium: load(MEDIUM),
+            fallback: system_font(&["segoeui.ttf", "arial.ttf"]),
+            fallback_bold: system_font(&["seguisb.ttf", "segoeui.ttf", "arial.ttf"]),
+        }
     })
 }
 
@@ -92,8 +122,14 @@ fn glyph(c: char, px: f32, w: Weight) -> Rc<Glyph> {
         cache
             .entry((w, c, key))
             .or_insert_with(|| {
-                let c2 = usable(c, w);
-                let (m, cov) = font(w).rasterize(c2, key as f32 / 2.0);
+                let f = fonts();
+                let fb = if w == Weight::Medium { f.fallback_bold.as_ref() } else { f.fallback.as_ref() };
+                let (m, cov) = match fb {
+                    Some(fbf) if font(w).lookup_glyph_index(c) == 0 && fbf.lookup_glyph_index(c) != 0 => {
+                        fbf.rasterize(c, key as f32 / 2.0)
+                    }
+                    _ => font(w).rasterize(usable(c, w), key as f32 / 2.0),
+                };
                 Rc::new(Glyph { w: m.width, h: m.height, xmin: m.xmin, ymin: m.ymin, advance: m.advance_width, cov })
             })
             .clone()

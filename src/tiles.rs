@@ -450,8 +450,8 @@ pub fn cells(s: &Settings, area: Rect) -> Vec<(TileSpec, Rect)> {
 
 /// Premultiplied-RGBA picture the tiles are drawn on.
 pub struct Layer {
-    w: usize,
-    h: usize,
+    pub(crate) w: usize,
+    pub(crate) h: usize,
     px: Vec<u8>,
 }
 
@@ -460,13 +460,13 @@ impl Layer {
         Layer { w: w as usize, h: h as usize, px: vec![0; (w * h * 4) as usize] }
     }
 
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.px.iter_mut().for_each(|b| *b = 0);
     }
 
     /// Source-over: `rgb` (not premultiplied) at `alpha` 0-255 onto pixel (x, y).
     #[inline]
-    fn over(&mut self, x: i32, y: i32, rgb: Rgb, alpha: u8) {
+    pub(crate) fn over(&mut self, x: i32, y: i32, rgb: Rgb, alpha: u8) {
         if alpha == 0 || x < 0 || y < 0 || x as usize >= self.w || y as usize >= self.h {
             return;
         }
@@ -515,7 +515,7 @@ impl Layer {
 
 /// Coverage (0-1) of the pixel centered at (px, py) by a rounded rectangle.
 #[inline]
-fn rrect_cov(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, r: f32) -> f32 {
+pub(crate) fn rrect_cov(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, r: f32) -> f32 {
     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
     let (hx, hy) = (w / 2.0 - r, h / 2.0 - r);
     let qx = (px - cx).abs() - hx;
@@ -524,13 +524,13 @@ fn rrect_cov(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, r: f32) -> f32 {
     (0.5 - d).clamp(0.0, 1.0)
 }
 
-fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
+pub(crate) fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
     let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
     (f(a.0, b.0), f(a.1, b.1), f(a.2, b.2))
 }
 
 /// Color at position `t` (0-1) along a list of color stops.
-fn gradient_at(stops: &[Rgb], t: f32) -> Rgb {
+pub(crate) fn gradient_at(stops: &[Rgb], t: f32) -> Rgb {
     match stops.len() {
         0 => (255, 255, 255),
         1 => stops[0],
@@ -544,7 +544,7 @@ fn gradient_at(stops: &[Rgb], t: f32) -> Rgb {
 
 impl Layer {
     /// One solid-colored run of pixels on row `y`, from `x0` (included) to `x1` (excluded).
-    fn span_over(&mut self, y: i32, x0: i32, x1: i32, rgb: Rgb, alpha: u8) {
+    pub(crate) fn span_over(&mut self, y: i32, x0: i32, x1: i32, rgb: Rgb, alpha: u8) {
         if y < 0 || y as usize >= self.h || alpha == 0 {
             return;
         }
@@ -567,7 +567,7 @@ impl Layer {
 
     /// Same as `fill_rrect` for one color; whole-pixel rectangles (the tiles) take a
     /// fast path for everything but the corners.
-    fn fill_rrect_solid(&mut self, rect: (f32, f32, f32, f32), radius: f32, rgb: Rgb, alpha: u8) {
+    pub(crate) fn fill_rrect_solid(&mut self, rect: (f32, f32, f32, f32), radius: f32, rgb: Rgb, alpha: u8) {
         let (x, y, w, h) = rect;
         if x.fract() != 0.0 || y.fract() != 0.0 || w.fract() != 0.0 || h.fract() != 0.0 || w < 1.0 || h < 1.0 {
             return self.fill_rrect(rect, radius, &move |_| rgb, alpha);
@@ -591,7 +591,7 @@ impl Layer {
     }
 
     /// Anti-aliased rounded rectangle; `color(t)` gives the color at horizontal position t (0-1).
-    fn fill_rrect(&mut self, rect: (f32, f32, f32, f32), radius: f32, color: &dyn Fn(f32) -> Rgb, alpha: u8) {
+    pub(crate) fn fill_rrect(&mut self, rect: (f32, f32, f32, f32), radius: f32, color: &dyn Fn(f32) -> Rgb, alpha: u8) {
         let (x, y, w, h) = rect;
         if w <= 0.0 || h <= 0.0 || alpha == 0 {
             return;
@@ -619,7 +619,7 @@ impl Layer {
     }
 
     /// Thin outline just inside a rounded rectangle.
-    fn stroke_rrect(&mut self, rect: (f32, f32, f32, f32), radius: f32, thick: f32, rgb: Rgb, alpha: u8) {
+    pub(crate) fn stroke_rrect(&mut self, rect: (f32, f32, f32, f32), radius: f32, thick: f32, rgb: Rgb, alpha: u8) {
         let (x, y, w, h) = rect;
         let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
         let band = thick + r.min(thick + 2.0) + 2.0;
@@ -650,7 +650,7 @@ impl Layer {
 
     /// A ring (track) or an arc starting at the top and going clockwise by `frac` of the
     /// circle, with round ends. `color(t)`: t = position along the FULL circle (0-1).
-    fn arc(&mut self, cx: f32, cy: f32, r_out: f32, thick: f32, frac: f32, color: &dyn Fn(f32) -> Rgb, alpha: u8) {
+    pub(crate) fn arc(&mut self, cx: f32, cy: f32, r_out: f32, thick: f32, frac: f32, color: &dyn Fn(f32) -> Rgb, alpha: u8) {
         let frac = frac.clamp(0.0, 1.0);
         if frac <= 0.0 || alpha == 0 {
             return;
@@ -706,13 +706,13 @@ impl Layer {
 
 // ---------------------------------------------------------------------- text
 
-struct Painter<'a> {
-    layer: &'a mut Layer,
-    font: FontStyle,
+pub(crate) struct Painter<'a> {
+    pub(crate) layer: &'a mut Layer,
+    pub(crate) font: FontStyle,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum W {
+pub(crate) enum W {
     Light,
     Regular,
     Medium,
@@ -723,7 +723,7 @@ impl Painter<'_> {
         ((cap / 7.0).round() as u32).max(1)
     }
 
-    fn width(&self, text: &str, cap: f32, w: W) -> f32 {
+    pub(crate) fn width(&self, text: &str, cap: f32, w: W) -> f32 {
         match self.font {
             FontStyle::Smooth => smooth_font::text_width(text, smooth_font::px_for_cap(cap), weight_of(w)),
             FontStyle::Pixel => {
@@ -735,7 +735,7 @@ impl Painter<'_> {
     }
 
     /// Largest cap height (<= `cap`) at which `text` is at most `max_w` wide.
-    fn fit(&self, text: &str, cap: f32, max_w: f32, w: W) -> f32 {
+    pub(crate) fn fit(&self, text: &str, cap: f32, max_w: f32, w: W) -> f32 {
         let cap = cap.max(1.0);
         let natural = self.width(text, cap, w);
         if natural <= max_w || natural <= 0.0 {
@@ -754,7 +754,7 @@ impl Painter<'_> {
     }
 
     /// Draws `text` with its left edge at `x` and its baseline at `base`; returns the width.
-    fn text(&mut self, x: f32, base: f32, text: &str, cap: f32, w: W, color: Rgb, alpha: u8) -> f32 {
+    pub(crate) fn text(&mut self, x: f32, base: f32, text: &str, cap: f32, w: W, color: Rgb, alpha: u8) -> f32 {
         match self.font {
             FontStyle::Smooth => {
                 let layer = &mut *self.layer;
@@ -797,7 +797,7 @@ fn weight_of(w: W) -> Weight {
 
 /// "SATURDAY" -> "Saturday", "10 OCTOBER 2026" -> "10 October 2026" (smooth font only;
 /// the pixel font has capitals only).
-fn nice_case(s: &str) -> String {
+pub(crate) fn nice_case(s: &str) -> String {
     let mut out = String::new();
     let mut start = true;
     for c in s.chars() {

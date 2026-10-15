@@ -130,6 +130,13 @@ pub const LAYOUTS: &[LayoutDef] = &[
         rows: &[],
     },
     LayoutDef {
+        name: "pro",
+        description: "Dark control-center dashboard: CPU, GPU (hotspot, fan, VRAM), RAM, SSD, network, now playing with cover",
+        standard: false,
+        cols: 1,
+        rows: &[],
+    },
+    LayoutDef {
         name: "weather",
         description: "Current weather, large: temperature, condition icon and city",
         standard: false,

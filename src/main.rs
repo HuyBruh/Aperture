@@ -32,6 +32,8 @@ mod openrgb_sync;
 mod pawnio;
 mod effect;
 mod pixel_game;
+mod pro;
+mod sysextra;
 mod smooth_font;
 mod spectrum;
 mod tiles;
@@ -1522,8 +1524,15 @@ fn main() -> anyhow::Result<()> {
     if diag_mode {
         println!("=== NVIDIA GPU Diagnostics ===");
         print!("{}", gpu_nvml::diag());
-        let amd = gpu_amd::GpuAmdSensor::new().sample();
+        let amd_sensor = gpu_amd::GpuAmdSensor::new();
+        let amd = amd_sensor.sample();
         println!("ADL (AMD): temp={:?} power={:?}", amd.temp_edge_c, amd.power_w);
+        println!("ADL (AMD) full: {amd:?}");
+        print!("{}", amd_sensor.dump());
+        println!("System drive: {:?}", sysextra::read_disk());
+        println!("CPU fan (HWiNFO shared memory): {:?}", sysextra::hwinfo_cpu_fan());
+        let s = System::new_all();
+        println!("CPU: {:?} -> {:?}, cores {:?}/{}", s.cpus().first().map(|c| c.brand().to_string()), sysextra::clean_cpu_name(s.cpus().first().map(|c| c.brand()).unwrap_or("")), s.physical_core_count(), s.cpus().len());
         if let Some(n) = gpu_nvml::NvSensor::new() {
             std::thread::sleep(Duration::from_secs(2));
             println!("Sensor chosen: {} -> {:?}", n.describe(), n.sample());
@@ -1735,6 +1744,11 @@ fn main() -> anyhow::Result<()> {
     let mut sys = System::new_all();
     sys.refresh_all();
     let mut last_sysinfo_refresh = Instant::now();
+    // The `pro` dashboard (see pro.rs): CPU model, cores, system drive.
+    let mut pro_screen = pro::ProScreen::new();
+    let pro_cpu_name = sysextra::clean_cpu_name(sys.cpus().first().map(|c| c.brand()).unwrap_or("CPU"));
+    let pro_cores = (sys.physical_core_count().unwrap_or(0), sys.cpus().len());
+    let pro_extra = sysextra::spawn_watcher();
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FFT_SIZE);
@@ -1761,6 +1775,8 @@ fn main() -> anyhow::Result<()> {
     // Anti-spam between two consecutive screenshots (ms) — prevents saving
     // dozens of files while the hotkey is held down.
     let mut last_snap = Instant::now() - Duration::from_millis(500);
+    let mut last_snap_req = Instant::now();
+    let snap_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
     loop {
         let frame_start = Instant::now();
@@ -1822,6 +1838,19 @@ fn main() -> anyhow::Result<()> {
                     Err(e) => eprintln!("Failed to save screenshot: {e}"),
                 }
                 last_snap = Instant::now();
+            }
+        }
+        // Snapshot on request: a file `trofeo-snap.req` next to the executable makes the
+        // program save the frame shown on the LCD as `trofeo-snap.png` (to check the
+        // screen remotely or from a script). Checked once per second.
+        if last_snap_req.elapsed() >= Duration::from_secs(1) {
+            last_snap_req = Instant::now();
+            if let Some(dir) = &snap_dir {
+                let req = dir.join("trofeo-snap.req");
+                if req.exists() {
+                    let _ = std::fs::remove_file(&req);
+                    let _ = std::fs::write(dir.join("trofeo-snap.png"), png_save::encode(&fb));
+                }
             }
         }
 
@@ -2017,6 +2046,9 @@ fn main() -> anyhow::Result<()> {
             ticker: latest_ticker.clone(),
         });
         let tiles_now = tiles_wanted && widget_data.is_some();
+        let pro_now = is_idle
+            && active_def.is_some_and(|d| d.name == "pro")
+            && !(gaming_mode && ui_show.dashboard);
         // Base: a background (image/gif/video) or a solid color; the interface goes
         // on the `ui` buffer (transparent) when there are margins or a background.
         if composite {
@@ -2042,6 +2074,35 @@ fn main() -> anyhow::Result<()> {
             };
             let tiles_env = tiles::Env { fps: config.active_fps, ffmpeg: config.ffmpeg.as_deref(), effect: &config.ui.effect };
             tiles_screen.draw(&mut fb, area, wd, color_mode, &opts().tiles, &tiles_env);
+        }
+        if pro_now {
+            let area = if composite {
+                (config.margins.left, config.margins.top, ui.width(), ui.height())
+            } else {
+                (0, 0, fb.width(), fb.height())
+            };
+            let extra = pro_extra.lock().map(|g| g.clone()).unwrap_or_default();
+            let data = pro::Data {
+                cpu_name: &pro_cpu_name,
+                cores: pro_cores,
+                cpu_pct: sys.global_cpu_info().cpu_usage(),
+                cpu_temp: latest_cpu_temp,
+                cpu_power: latest_cpu_power,
+                cpu_mhz: latest_cpu_mhz,
+                gpu_pct: latest_gpu_percent,
+                gpu: &latest_gpu_data,
+                ram_used_mb: sys.used_memory() / 1024 / 1024,
+                ram_total_mb: sys.total_memory() / 1024 / 1024,
+                disk: extra.disk.as_ref(),
+                cpu_fan_rpm: extra.cpu_fan_rpm,
+                disk_rate: latest_disk_mb,
+                net_kb: latest_net_kb,
+                weather: latest_weather.as_ref(),
+                fahrenheit: opts().weather_fahrenheit,
+                uptime_s: System::uptime(),
+                track: track.as_ref(),
+            };
+            pro_screen.draw(&mut fb, area, &data);
         }
         let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };
         if gaming_mode && ui_show.dashboard {
@@ -2212,6 +2273,7 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
     GAME_STRIP.store(game_wanted, Relaxed);
     let game_on = game_wanted && default_areas(&fb).1.is_some();
     let tiles_now = is_idle && active_def.is_some_and(|d| d.name == "tiles");
+    let pro_now = is_idle && active_def.is_some_and(|d| d.name == "pro");
     let color_mode = config.color_mode;
 
     let mut sys = System::new_all();
@@ -2244,6 +2306,73 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
         };
         let env = tiles::Env { fps: config.active_fps, ffmpeg: config.ffmpeg.as_deref(), effect: &config.ui.effect };
         tiles::TilesScreen::new().draw(&mut fb, area, &wd, color_mode, &o.tiles, &env);
+    }
+    if pro_now {
+        let area = if composite {
+            (config.margins.left, config.margins.top, ui.width(), ui.height())
+        } else {
+            (0, 0, fb.width(), fb.height())
+        };
+        let gpu = gpu_amd::GpuAmdData {
+            temp_hotspot_c: Some(66),
+            clock_mhz: Some(2491),
+            vram_used_mb: Some(4424),
+            vram_total_mb: Some(8176),
+            name: Some("AMD Radeon RX 6600".into()),
+            ..gpu_data.clone()
+        };
+        let disk = sysextra::DiskInfo { label: "C:".into(), used_gb: 856.0, total_gb: 931.0, temp_c: Some(36) };
+        // a sample cover: a diagonal gradient with a soft circle
+        let n = 300u32;
+        let mut rgb = Vec::with_capacity((n * n * 3) as usize);
+        for yy in 0..n {
+            for xx in 0..n {
+                let t = (xx + yy) as f32 / (2 * n) as f32;
+                let dc = ((xx as f32 - 190.0).hypot(yy as f32 - 120.0) / 110.0).min(1.0);
+                let glow = (1.0 - dc) * 120.0;
+                rgb.push((40.0 + 200.0 * t + glow).min(255.0) as u8);
+                rgb.push((20.0 + 60.0 * (1.0 - t) + glow * 0.6).min(255.0) as u8);
+                rgb.push((120.0 + 100.0 * (1.0 - t) + glow * 0.4).min(255.0) as u8);
+            }
+        }
+        let track = Arc::new(media::TrackInfo {
+            title: "Song title that is quite long".into(),
+            artist: "Artist name".into(),
+            album: "Album".into(),
+            cover: Some(Arc::new(media::CoverArt { width: n, height: n, rgb })),
+            timeline: Some(media::Timeline { position_ms: 83_000, duration_ms: 215_000, playing: true, sampled_at: Instant::now() }),
+        });
+        let mut weather_fc = weather.clone();
+        {
+            use chrono::Weekday::*;
+            use weather_icon::WeatherIcon as I;
+            for (wd, ic, hi, lo) in [(Thu, I::Clear, 28.0, 19.0), (Fri, I::Cloudy, 27.0, 19.0), (Sat, I::Rain, 24.0, 14.0), (Sun, I::PartlyCloudy, 19.0, 10.0)] {
+                weather_fc.forecast.push(weather::DailyForecast { weekday: wd, icon: ic, temp_max_c: hi, temp_min_c: lo, precip_prob: None });
+            }
+        }
+        let data = pro::Data {
+            cpu_name: "AMD Ryzen 7 5800X",
+            cores: (8, 16),
+            cpu_pct: wd.cpu_pct,
+            cpu_temp: wd.cpu_temp,
+            cpu_power: wd.cpu_power,
+            cpu_mhz: wd.cpu_mhz,
+            gpu_pct: wd.gpu_pct,
+            gpu: &gpu,
+            ram_used_mb: 21_319,
+            ram_total_mb: 32_691,
+            disk: Some(&disk),
+            cpu_fan_rpm: Some(1180),
+            disk_rate: (1.2, 0.3),
+            net_kb: (12_700.0, 1_240.0),
+            weather: Some(&weather_fc),
+            fahrenheit: o.weather_fahrenheit,
+            uptime_s: 3 * 86_400 + 4 * 3600 + 12 * 60,
+            track: (req.state != PreviewState::Idle).then_some(&track),
+        };
+        let mut screen = pro::ProScreen::new();
+        screen.seed_demo_history();
+        screen.draw(&mut fb, area, &data);
     }
     let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };
 

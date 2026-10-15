@@ -99,6 +99,25 @@ mod imp {
     pub(super) const PMLOG_TEMPERATURE_HOTSPOT: usize = 27;
     pub(super) const PMLOG_FAN_RPM: usize = 14;
     pub(super) const PMLOG_ASIC_POWER: usize = 23;
+    pub(super) const PMLOG_CLK_GFXCLK: usize = 1;
+    pub(super) const PMLOG_CLK_MEMCLK: usize = 2;
+    pub(super) const PMLOG_FAN_PERCENTAGE: usize = 15;
+    pub(super) const PMLOG_TEMPERATURE_HOTSPOT_GCD: usize = 50;
+
+    /// `ADLMemoryInfo2` (adl_structures.h), with spare room at the end in case a
+    /// driver writes a longer version of the struct.
+    #[repr(C)]
+    struct AdlMemoryInfo2 {
+        memory_size: i64,
+        memory_type: [u8; ADL_MAX_PATH],
+        memory_bandwidth: i64,
+        hyper_memory_size: i64,
+        invisible_memory_size: i64,
+        visible_memory_size: i64,
+        _spare: [u8; 512],
+    }
+    type AdlVramUsageFn = unsafe extern "system" fn(AdlContext, c_int, *mut c_int) -> c_int;
+    type AdlMemoryInfo2Fn = unsafe extern "system" fn(AdlContext, c_int, *mut AdlMemoryInfo2) -> c_int;
 
     // === Function pointer types, resolved from the DLL ===
 
@@ -151,6 +170,9 @@ mod imp {
         destroy2_fn: Option<AdlMainControlDestroy2Fn>,
         context: AdlContext,
         adapter_index: c_int,
+        vram_usage_fn: Option<AdlVramUsageFn>,
+        vram_total_mb: Option<i32>,
+        name: Option<String>,
     }
 
     impl GpuAmdInner {
@@ -190,10 +212,13 @@ mod imp {
                 // Find the first "present" AMD adapter (vendor_id 1002 decimal —
                 // not hex 0x1002 = 4098 — a slightly odd ADL quirk, confirmed
                 // from probe output).
-                let adapter_index = adapters
-                    .iter()
-                    .find(|a| a.present != 0 && a.vendor_id == 1002)
-                    .map(|a| a.adapter_index)?;
+                let chosen = adapters.iter().find(|a| a.present != 0 && a.vendor_id == 1002)?;
+                let adapter_index = chosen.adapter_index;
+                let name = {
+                    let raw: Vec<u8> = chosen.adapter_name.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
+                    let n = String::from_utf8_lossy(&raw).trim().to_string();
+                    (!n.is_empty()).then_some(n)
+                };
 
                 // Done with ADL v1, can destroy it now.
                 if let Some(destroy1) =
@@ -257,6 +282,16 @@ mod imp {
                 })()
                 .map_or((None, None), |(g, s)| (Some(g), Some(s)));
 
+                // VRAM: used (MB) every sample, total (bytes) once.
+                let vram_usage_fn = resolve::<AdlVramUsageFn>(module, "ADL2_Adapter_DedicatedVRAMUsage_Get")
+                    .or_else(|| resolve::<AdlVramUsageFn>(module, "ADL2_Adapter_VRAMUsage_Get"));
+                #[allow(unused_unsafe)]
+                let vram_total_mb = resolve::<AdlMemoryInfo2Fn>(module, "ADL2_Adapter_MemoryInfo2_Get").and_then(|f| unsafe {
+                    let mut info: AdlMemoryInfo2 = std::mem::zeroed();
+                    (f(context, adapter_index, &mut info) == 0 && info.memory_size > 0)
+                        .then(|| (info.memory_size / (1024 * 1024)) as i32)
+                });
+
                 Some(GpuAmdInner {
                     query_fn,
                     frame_metrics_get_fn,
@@ -264,6 +299,9 @@ mod imp {
                     destroy2_fn,
                     context,
                     adapter_index,
+                    vram_usage_fn,
+                    vram_total_mb,
+                    name,
                 })
             }
         }
@@ -297,14 +335,46 @@ mod imp {
                 }
             });
 
+            let vram_used_mb = self.vram_usage_fn.and_then(|f| {
+                let mut mb: c_int = -1;
+                let st = unsafe { f(self.context, self.adapter_index, &mut mb) };
+                (st == 0 && mb >= 0).then_some(mb)
+            });
+
             super::GpuAmdData {
                 temp_edge_c: get(PMLOG_TEMPERATURE_EDGE),
-                temp_hotspot_c: get(PMLOG_TEMPERATURE_HOTSPOT),
+                temp_hotspot_c: get(PMLOG_TEMPERATURE_HOTSPOT)
+                    .filter(|t| *t > 0)
+                    .or_else(|| get(PMLOG_TEMPERATURE_HOTSPOT_GCD).filter(|t| *t > 0)),
                 power_w: get(PMLOG_ASIC_POWER),
                 fan_rpm: get(PMLOG_FAN_RPM),
                 fps,
-                clock_mhz: None,
+                clock_mhz: get(PMLOG_CLK_GFXCLK),
+                mem_clock_mhz: get(PMLOG_CLK_MEMCLK),
+                fan_pct: get(PMLOG_FAN_PERCENTAGE),
+                vram_used_mb,
+                vram_total_mb: self.vram_total_mb,
+                name: self.name.clone(),
             }
+        }
+
+        /// Every PMLog sensor the driver reports as supported (for `--diag`).
+        pub(super) fn dump(&self) -> String {
+            let mut output = AdlPMLogDataOutput::default();
+            output.size = std::mem::size_of::<AdlPMLogDataOutput>() as c_int;
+            let status = unsafe { (self.query_fn)(self.context, self.adapter_index, &mut output) };
+            let mut out = format!("ADL PMLog status={status} name={:?} vram_total_mb={:?}\n", self.name, self.vram_total_mb);
+            for (i, s) in output.sensors.iter().enumerate() {
+                if s.supported != 0 {
+                    out.push_str(&format!("  sensor[{i}] = {}\n", s.value));
+                }
+            }
+            if let Some(f) = self.vram_usage_fn {
+                let mut mb: c_int = -1;
+                let st = unsafe { f(self.context, self.adapter_index, &mut mb) };
+                out.push_str(&format!("  vram_used: status={st} mb={mb}\n"));
+            }
+            out
         }
     }
 
@@ -362,8 +432,7 @@ mod imp {
                 temp_hotspot_c: self.hotspot_path.as_deref().and_then(read_i64).map(|m| (m / 1000) as i32),
                 power_w: self.power_path.as_deref().and_then(read_i64).map(|u| (u / 1_000_000) as i32),
                 fan_rpm: self.fan_path.as_deref().and_then(read_i64).map(|v| v as i32),
-                fps: None,
-                clock_mhz: None,
+                ..Default::default()
             }
         }
     }
@@ -433,7 +502,7 @@ mod imp {
 /// Result of one AMD GPU sensor reading.
 /// All fields are `Option` — `None` if the sensor is not supported by this
 /// GPU/driver, or if ADL is not available at all.
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct GpuAmdData {
     /// Edge/die surface temperature (°C) — equivalent to "GPU Temperature" in HWiNFO.
     pub temp_edge_c: Option<i32>,
@@ -448,8 +517,17 @@ pub struct GpuAmdData {
     /// game is currently running, the GPU/driver doesn't support it, or ADL
     /// is not available at all.
     pub fps: Option<i32>,
-    /// GPU core clock (MHz), from NVML/nvidia-smi.
+    /// GPU core clock (MHz), from NVML/nvidia-smi or ADL PMLog (GFXCLK).
     pub clock_mhz: Option<i32>,
+    /// Memory clock (MHz), ADL PMLog.
+    pub mem_clock_mhz: Option<i32>,
+    /// Fan speed in percent, ADL PMLog.
+    pub fan_pct: Option<i32>,
+    /// Dedicated VRAM in use / total (MB), ADL.
+    pub vram_used_mb: Option<i32>,
+    pub vram_total_mb: Option<i32>,
+    /// Adapter name reported by the driver ("AMD Radeon RX 6600").
+    pub name: Option<String>,
 }
 
 #[cfg(windows)]
@@ -508,5 +586,14 @@ impl GpuAmdSensor {
             return inner.sample();
         }
         GpuAmdData::default()
+    }
+
+    /// Raw dump of every sensor (for `--diag`).
+    pub fn dump(&self) -> String {
+        #[cfg(windows)]
+        if let Some(inner) = &self.inner {
+            return inner.dump();
+        }
+        String::from("ADL: not available\n")
     }
 }
