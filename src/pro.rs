@@ -111,19 +111,16 @@ pub enum Layout {
     Classic,
     /// Car instrument cluster: two gauges and the clock in the middle.
     Cockpit,
-    /// Typographic rows with long thin bars, three columns.
-    Horizon,
     /// A few huge numbers.
     Focus,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 4] = [Layout::Classic, Layout::Cockpit, Layout::Horizon, Layout::Focus];
+    pub const ALL: [Layout; 3] = [Layout::Classic, Layout::Cockpit, Layout::Focus];
     pub fn name(self) -> &'static str {
         match self {
             Layout::Classic => "classic",
             Layout::Cockpit => "cockpit",
-            Layout::Horizon => "horizon",
             Layout::Focus => "focus",
         }
     }
@@ -178,7 +175,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
             let l = Layout::ALL
                 .iter()
                 .find(|l| l.name() == name)
-                .ok_or_else(|| anyhow::anyhow!("pro_layout: '{name}' is not valid (classic, cockpit, horizon, focus, all)"))?;
+                .ok_or_else(|| anyhow::anyhow!("pro_layout: '{name}' is not valid (classic, cockpit, focus, all)"))?;
             list.push(*l);
         }
         if !list.is_empty() {
@@ -393,7 +390,6 @@ impl ProScreen {
             match layout {
                 Layout::Classic => paint(&mut p, wf, hf, d, &now, hist, cover),
                 Layout::Cockpit => paint_cockpit(&mut p, wf, hf, &sc, d, &now, cover),
-                Layout::Horizon => paint_horizon(&mut p, wf, hf, &sc, d, &now, hist, cover),
                 Layout::Focus => paint_focus(&mut p, wf, hf, &sc, d, &now, hist, cover),
             }
             let found = MARQ.with(|m| std::mem::take(&mut *m.borrow_mut()));
@@ -1708,140 +1704,18 @@ fn paint_cockpit(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &ch
     now_playing_compact(p, inner, sc, d, cover, true);
 }
 
-// --------------------------------------------------------------- HORIZON
-//
-// Typographic rows: the clock and now playing on the left, then three columns
-// (processor, graphics, system), each a list of rows: label, value, a long thin bar.
-
-struct Row<'a> {
-    label: &'a str,
-    note: String,
-    value: String,
-    unit: String,
-    color: Rgb,
-    frac: Option<f32>,
-    bar: [Rgb; 2],
-}
-
-fn row<'a>(label: &'a str, note: String, value: String, unit: &str, color: Rgb, frac: Option<f32>, bar: [Rgb; 2]) -> Row<'a> {
-    Row { label, note, value, unit: unit.to_string(), color, frac, bar }
-}
-
-fn column(p: &mut Painter, r: R, sc: &Scale, accent: Rgb, title: &str, sub: &str, rows: &[Row]) {
-    let k = sc.k;
-    let (x, y, w, h) = r;
-    let hb = y + 24.0 * k;
-    circle(p, x + 5.0 * k, hb - sc.m * 0.4, 5.0 * k, accent, 255);
-    let tw = p.text(x + 18.0 * k, hb, title, sc.m * 1.2, W::Medium, th().text, 255);
-    let sub = ellipsize(p, sub, sc.s, W::Regular, w - tw - 30.0 * k);
-    let sw = p.width(&sub, sc.s, W::Regular);
-    p.text(x + w - sw, hb, &sub, sc.s, W::Regular, th().dim, 255);
-    let top = hb + 18.0 * k;
-    let rh = (y + h - top) / rows.len() as f32;
-    for (i, rw) in rows.iter().enumerate() {
-        let ry = top + i as f32 * rh;
-        let base = ry + rh - 22.0 * k;
-        let lw = spaced(p, x, base - sc.l + sc.s + 2.0 * k, rw.label, sc.s, W::Medium, th().dim, 1.6 * k);
-        if !rw.note.is_empty() {
-            let note = ellipsize(p, &rw.note, sc.s, W::Regular, w * 0.5 - lw);
-            p.text(x, base, &note, sc.s, W::Regular, th().muted, 255);
-        }
-        let cap = fit_vu(p, &rw.value, &rw.unit, sc.l, w * 0.55, W::Medium);
-        let vw = value_unit_width(p, &rw.value, &rw.unit, cap, W::Medium);
-        value_unit(p, x + w - vw, base, &rw.value, &rw.unit, cap, W::Medium, rw.color);
-        if rw.frac.is_some() {
-            hbar(p, x, base + 9.0 * k, w, 4.0 * k, rw.frac, rw.bar);
-        } else {
-            capsule(p, (x, base + 11.0 * k), (x + w, base + 11.0 * k), 0.5, WHITE, 30);
-        }
-    }
-}
-
-fn paint_horizon(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, hist: (&VecDeque<f32>, &VecDeque<f32>, &VecDeque<f32>), cover: Option<&Cover>) {
-    let k = sc.k;
-    let m = 22.0 * k;
-    // left block
-    let lw = 340.0 * k;
-    let (t, wd, date) = clock_parts(now);
-    spaced(p, m, m + sc.s, &wd, sc.s, W::Medium, th().muted, 2.2 * k);
-    p.text(m, m + sc.s + 12.0 * k + sc.m, &date, sc.m, W::Regular, th().text, 255);
-    let tcap = p.fit(&t, 110.0 * k, lw, W::Light);
-    let tb = m + sc.s + 12.0 * k + sc.m + 22.0 * k + tcap;
-    p.text(m - 4.0 * k, tb, &t, tcap, W::Light, th().text, 255);
-    if let Some((icon, temp, line)) = weather_text(d) {
-        let wy = tb + 22.0 * k;
-        weather_icon(p, m - 3.0 * k, wy, 40.0 * k, icon, !(6..19).contains(&now.hour()));
-        p.text(m + 46.0 * k, wy + 20.0 * k + sc.l / 2.0, &temp, sc.l, W::Medium, th().text, 255);
-        let tw = p.width(&temp, sc.l, W::Medium);
-        let line = ellipsize(p, &line, sc.s, W::Regular, lw - 56.0 * k - tw);
-        p.text(m + 56.0 * k + tw, wy + 20.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
-    }
-    let np = (m, h - m - 70.0 * k, lw, 70.0 * k);
-    capsule(p, (m, np.1 - 18.0 * k), (m + lw, np.1 - 18.0 * k), 0.5, WHITE, 34);
-    now_playing_compact(p, np, sc, d, cover, true);
-
-    // three columns
-    let gx = m + lw + 40.0 * k;
-    let gap = 40.0 * k;
-    let cw = (w - m - gx - 2.0 * gap) / 3.0;
-    let cols = [gx, gx + cw + gap, gx + 2.0 * (cw + gap)];
-    for cx in &cols[..] {
-        capsule(p, (cx - gap / 2.0, m), (cx - gap / 2.0, h - m), 0.5, WHITE, 30);
-    }
-    let r = |i: usize| (cols[i], m - 6.0 * k, cw, h - 2.0 * m + 6.0 * k);
-    let (tv, tc) = tval(d.cpu_temp, 80.0, 90.0);
-    let (uv, uu) = uptime_str(d.uptime_s);
-    let avg = if hist.0.is_empty() { d.cpu_pct } else { hist.0.iter().sum::<f32>() / hist.0.len() as f32 };
-    let cpu_rows = [
-        row("LOAD", format!("avg {avg:.0}%"), format!("{:.0}", d.cpu_pct), "%", th().text, Some(d.cpu_pct / 100.0), th().cpu),
-        row("TEMP", String::new(), tv, "\u{b0}C", tc, d.cpu_temp.map(|t| t / 100.0), th().cpu),
-        row("POWER", String::new(), d.cpu_power.map_or("--".into(), |v| format!("{v:.0}")), "W", th().text, d.cpu_power.map(|v| v / 200.0), th().cpu),
-        row("CLOCK", String::new(), d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0)), "GHz", th().text, d.cpu_mhz.map(|m| m as f32 / 5000.0), th().cpu),
-        match d.cpu_fan_rpm {
-            Some(rpm) => row("FAN", String::new(), rpm.to_string(), "RPM", th().text, Some(rpm as f32 / 2500.0), th().cpu),
-            None => row("UPTIME", String::new(), uv, &uu, th().text, None, th().cpu),
-        },
-    ];
-    column(p, r(0), sc, th().cpu[0], "Processor", d.cpu_name, &cpu_rows);
-    let g = d.gpu;
-    let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
-    let (vv, vu, vf) = vram_text(g);
-    let fps = g.fps.filter(|f| *f > 0);
-    let gpu_rows = [
-        row("LOAD", g.clock_mhz.filter(|c| *c > 0).map_or(String::new(), |c| format!("{c} MHz")), d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}")), "%", th().text, d.gpu_pct.map(|v| v / 100.0), th().gpu),
-        row("TEMP", g.temp_hotspot_c.map_or(String::new(), |t| format!("hotspot {t}\u{b0}")), gt, "\u{b0}C", gtc, g.temp_edge_c.map(|t| t as f32 / 100.0), th().gpu),
-        row("POWER", g.fan_rpm.map_or(String::new(), |f| format!("fan {} rpm", f.max(0))), g.power_w.map_or("--".into(), |v| v.to_string()), "W", th().text, g.power_w.map(|v| v as f32 / 350.0), th().gpu),
-        row("VRAM", String::new(), vv, &vu, th().text, vf, th().gpu),
-        row("FPS", fps.map_or(String::new(), |f| format!("{:.1} ms", 1000.0 / f as f32)), fps.map_or("--".into(), |f| f.to_string()), "", if fps.is_some() { th().fps } else { th().dim }, fps.map(|f| f as f32 / 240.0), [th().fps, th().fps]),
-    ];
-    let gname = g.name.clone().unwrap_or_else(|| "GPU".into());
-    column(p, r(1), sc, th().gpu[0], "Graphics", &gname, &gpu_rows);
-    let ram_f = if d.ram_total_mb > 0 { Some(d.ram_used_mb as f32 / d.ram_total_mb as f32) } else { None };
-    let peak = hist.2.iter().cloned().fold(1024.0f32, f32::max);
-    let (dn, du) = rate(d.net_kb.0);
-    let (un, uu2) = rate(d.net_kb.1);
-    let sys_rows = [
-        row("MEMORY", format!("of {} GB", gb(d.ram_total_mb)), gb(d.ram_used_mb), "GB", th().text, ram_f, th().ram),
-        row("STORAGE", d.disk.map_or(String::new(), |x| format!("{:.0}/{:.0} GB", x.used_gb, x.total_gb)), d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%", th().text, d.disk.map(|x| x.used_frac()), th().ssd),
-        row("SSD TEMP", format!("R {:.1}  W {:.1} MB/s", d.disk_rate.0, d.disk_rate.1), d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C", d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0)), d.disk.and_then(|x| x.temp_c).map(|t| t as f32 / 80.0), th().ssd),
-        row("DOWNLOAD", String::new(), dn, du, th().text, Some(d.net_kb.0 as f32 / peak), th().net),
-        row("UPLOAD", String::new(), un, uu2, th().text, Some(d.net_kb.1 as f32 / peak), [th().up, th().up]),
-    ];
-    column(p, r(2), sc, th().ram[0], "System", "", &sys_rows);
-}
-
 // ------------------------------------------------------------------ FOCUS
 //
 // A few huge numbers: the temperatures of CPU and GPU, memory use and the clock,
 // each with a short row of details and a soft load graph underneath.
 
-fn focus_section(p: &mut Painter, r: R, sc: &Scale, colors: [Rgb; 2], label: &str, hero: &str, hero_unit: &str, hero_color: Rgb, side: &str, stats: &[(&str, String, String, Rgb)], hist: Option<(&VecDeque<f32>, f32)>) {
+fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, colors: [Rgb; 2], label: &str, hero: &str, hero_unit: &str, hero_color: Rgb, side: &str, stats: &[(&str, String, String, Rgb)], hist: Option<(&VecDeque<f32>, f32)>) {
     let k = sc.k;
     let (x, y, w, h) = r;
     circle(p, x + 5.0 * k, y + sc.s * 0.5, 5.0 * k, colors[0], 255);
     spaced(p, x + 18.0 * k, y + sc.s, label, sc.s, W::Medium, th().muted, 2.0 * k);
-    let hcap = 136.0 * k;
-    let hb = y + sc.s + 26.0 * k + hcap;
+    let hcap = 128.0 * k;
+    let hb = y + sc.s + 22.0 * k + hcap;
     let cap = fit_vu(p, hero, hero_unit, hcap, w - 10.0 * k, W::Light);
     let hw = p.text(x - 6.0 * k, hb, hero, cap, W::Light, hero_color, 255);
     if !hero_unit.is_empty() {
@@ -1851,30 +1725,29 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, colors: [Rgb; 2], label: &st
         let sw = p.width(side, sc.m, W::Regular);
         p.text(x + w - sw, hb, side, sc.m, W::Regular, th().muted, 255);
     }
-    // stats row
-    let top = hb + 24.0 * k;
-    let n = stats.len().max(1) as f32;
-    let cw = w / n;
+    // stats: three per row, all at the same size
+    let cw = w / 3.0;
+    let top = hb + 22.0 * k;
+    let pitch = sc.s + 8.0 * k + vcap + 18.0 * k;
     for (i, (l, v, u, c)) in stats.iter().enumerate() {
-        let sx = x + i as f32 * cw;
-        spaced(p, sx, top + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
-        let cap = fit_vu(p, v, u, 30.0 * k, cw - 10.0 * k, W::Medium);
-        value_unit(p, sx, top + sc.s + 9.0 * k + 30.0 * k, v, u, cap, W::Medium, *c);
+        let sx = x + (i % 3) as f32 * cw;
+        let sy = top + (i / 3) as f32 * pitch;
+        spaced(p, sx, sy + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
+        let cap = fit_vu(p, v, u, vcap, cw - 8.0 * k, W::Medium);
+        value_unit(p, sx, sy + sc.s + 8.0 * k + vcap, v, u, cap, W::Medium, *c);
     }
+    // a thin history line along the bottom
     if let Some((hq, max)) = hist {
-        let gy = top + sc.s + 9.0 * k + 30.0 * k + 20.0 * k;
-        let gh = y + h - gy;
-        if gh > 16.0 * k {
-            sparkline(p, (x, gy, w, gh), hq, max, colors, k);
-        }
+        let gh = 28.0 * k;
+        sparkline(p, (x, y + h - gh, w, gh), hq, max, colors, k);
     }
 }
 
 fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, hist: (&VecDeque<f32>, &VecDeque<f32>, &VecDeque<f32>), cover: Option<&Cover>) {
     let k = sc.k;
     let m = 24.0 * k;
-    let gap = 44.0 * k;
-    let weights = [450.0f32, 470.0, 380.0, 470.0];
+    let gap = 40.0 * k;
+    let weights = [446.0f32, 476.0, 430.0, 420.0];
     let avail = w - 2.0 * m - gap * 3.0;
     let sum: f32 = weights.iter().sum();
     let mut xs = Vec::new();
@@ -1888,20 +1761,27 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         capsule(p, (x - gap / 2.0, m), (x - gap / 2.0, h - m), 0.5, WHITE, 34);
     }
     let r = |i: usize| (xs[i].0, m, xs[i].1, h - 2.0 * m);
+    // one value size for every stat of the three sections (the widest values must fit)
+    let mut vcap = 42.0 * k;
+    for (i, tpl) in [(0, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (1, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (2, [("12.4", "MB/s"), ("47.9", "GB"), ("100", "%")])] {
+        for (v, u) in tpl {
+            vcap = vcap.min(fit_vu(p, v, u, 42.0 * k, xs[i].1 / 3.0 - 8.0 * k, W::Medium));
+        }
+    }
     // CPU
     let (tv, tc) = tval(d.cpu_temp, 80.0, 90.0);
     let (uv, uu) = uptime_str(d.uptime_s);
-    let cpu_stats = [
+    let mut cpu_stats = vec![
         ("LOAD", format!("{:.0}", d.cpu_pct), "%".to_string(), th().text),
         ("POWER", d.cpu_power.map_or("--".into(), |v| format!("{v:.0}")), "W".into(), th().text),
         ("CLOCK", d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0)), "GHz".into(), th().text),
-        match d.cpu_fan_rpm {
-            Some(rpm) => ("FAN", rpm.to_string(), "RPM".into(), th().text),
-            None => ("UP", uv, uu, th().text),
-        },
+        ("UPTIME", uv, uu, th().text),
     ];
-    focus_section(p, r(0), sc, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
-    // GPU
+    if let Some(rpm) = d.cpu_fan_rpm {
+        cpu_stats.push(("FAN", rpm.to_string(), "RPM".into(), th().text));
+    }
+    focus_section(p, r(0), sc, vcap, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
+    // GPU: FPS has its own cell, it never replaces another value
     let g = d.gpu;
     let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
     let fps = g.fps.filter(|f| *f > 0);
@@ -1910,29 +1790,35 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         ("LOAD", d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}")), "%".to_string(), th().text),
         ("POWER", g.power_w.map_or("--".into(), |v| v.to_string()), "W".into(), th().text),
         ("FAN", g.fan_rpm.map_or("--".into(), |v| v.max(0).to_string()), "RPM".into(), th().text),
+        ("CLOCK", g.clock_mhz.filter(|c| *c > 0).map_or("--".into(), |v| v.to_string()), "MHz".into(), th().text),
+        ("VRAM", vram_text(g).0, "GB".into(), th().text),
         match fps {
             Some(f) => ("FPS", f.to_string(), format!("{:.1}ms", 1000.0 / f as f32), th().fps),
-            None => ("VRAM", vram_text(g).0, "GB".into(), th().text),
+            None => ("FPS", "--".to_string(), String::new(), th().dim),
         },
     ];
-    focus_section(p, r(1), sc, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
-    // memory
+    focus_section(p, r(1), sc, vcap, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
+    // memory + storage + network
     let ram_pct = if d.ram_total_mb > 0 { d.ram_used_mb as f32 * 100.0 / d.ram_total_mb as f32 } else { 0.0 };
     let (dn, du) = rate(d.net_kb.0);
+    let (un, uu2) = rate(d.net_kb.1);
     let mem_stats = [
         ("USED", gb(d.ram_used_mb), "GB".to_string(), th().text),
-        ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), th().text),
-        ("NET", dn, du.to_string(), th().text),
+        ("FREE", gb(d.ram_total_mb.saturating_sub(d.ram_used_mb)), "GB".into(), th().text),
+        ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0))),
+        ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
+        ("DOWN", dn, du.to_string(), th().text),
+        ("UP", un, uu2.to_string(), th().text),
     ];
     let side = format!("of {} GB", gb(d.ram_total_mb));
-    focus_section(p, r(2), sc, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
+    focus_section(p, r(2), sc, vcap, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
     // time + weather + now playing
     let (x, y, sw, sh) = r(3);
     let (t, wd, date) = clock_parts(now);
     spaced(p, x, y + sc.s, &format!("{wd}  \u{b7}  {}", date.to_uppercase()), sc.s, W::Medium, th().muted, 2.0 * k);
-    let hcap = 136.0 * k;
+    let hcap = 128.0 * k;
     let cap = p.fit(&t, hcap, sw, W::Light);
-    let hb = y + sc.s + 26.0 * k + hcap;
+    let hb = y + sc.s + 22.0 * k + hcap;
     p.text(x - 6.0 * k, hb, &t, cap, W::Light, th().text, 255);
     if let Some((icon, temp, line)) = weather_text(d) {
         let wy = hb + 22.0 * k;
