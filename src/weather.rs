@@ -148,6 +148,20 @@ fn http_get(url: &str) -> Result<String, String> {
 /// — a real city the user is asking about is essentially always the largest
 /// match for its name.
 fn geocode_city(city: &str) -> Result<Location, String> {
+    // "43.60, -84.77": coordinates, no lookup needed.
+    if let Some((a, b)) = city.split_once(',') {
+        if let (Ok(lat), Ok(lon)) = (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
+            if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) {
+                return Ok(Location { lat, lon, city: None });
+            }
+        }
+    }
+    // "Mount Pleasant, Michigan" / "Mount Pleasant, MI, US": the part after the first
+    // comma narrows the matches to the ones whose region / country contains it.
+    let (city, qualifier) = match city.split_once(',') {
+        Some((c, q)) => (c.trim(), Some(q.trim().to_lowercase())),
+        None => (city, None),
+    };
     let lang = match crate::i18n::language() {
         crate::i18n::Lang::It => "it",
         crate::i18n::Lang::En => "en",
@@ -157,8 +171,9 @@ fn geocode_city(city: &str) -> Result<Location, String> {
         crate::i18n::Lang::Pt => "pt",
     };
     let url = format!(
-        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=8&language={lang}&format=json",
-        urlencode(city)
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count={}&language={lang}&format=json",
+        urlencode(city),
+        if qualifier.is_some() { 30 } else { 8 }
     );
     let body = http_get(&url)?;
     let array = extract_array(&body, "\"results\"").ok_or_else(|| format!("city '{city}' not found"))?;
@@ -169,6 +184,18 @@ fn geocode_city(city: &str) -> Result<Location, String> {
             continue;
         };
         let name = json_string(obj, "\"name\"");
+        if let Some(q) = &qualifier {
+            let fields: Vec<String> = ["\"admin1\"", "\"admin2\"", "\"country\"", "\"country_code\""]
+                .iter()
+                .filter_map(|k| json_string(obj, k))
+                .map(|v| v.to_lowercase())
+                .collect();
+            let wanted: Vec<String> = q.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+            let ok = wanted.iter().all(|w| fields.iter().any(|f| f == w || f.contains(w.as_str())) || us_state_abbr(w).is_some_and(|full| fields.iter().any(|f| f == full)));
+            if !ok {
+                continue;
+            }
+        }
         let population = json_number(obj, "\"population\"").unwrap_or(0.0);
         let is_better = match &best {
             None => true,
@@ -185,6 +212,23 @@ fn geocode_city(city: &str) -> Result<Location, String> {
         lon,
         city: name.or_else(|| Some(city.to_string())),
     })
+}
+
+/// "mi" -> "michigan" (US state abbreviations, for "City, MI").
+fn us_state_abbr(a: &str) -> Option<&'static str> {
+    const S: &[(&str, &str)] = &[
+        ("al", "alabama"), ("ak", "alaska"), ("az", "arizona"), ("ar", "arkansas"), ("ca", "california"),
+        ("co", "colorado"), ("ct", "connecticut"), ("de", "delaware"), ("fl", "florida"), ("ga", "georgia"),
+        ("hi", "hawaii"), ("id", "idaho"), ("il", "illinois"), ("in", "indiana"), ("ia", "iowa"),
+        ("ks", "kansas"), ("ky", "kentucky"), ("la", "louisiana"), ("me", "maine"), ("md", "maryland"),
+        ("ma", "massachusetts"), ("mi", "michigan"), ("mn", "minnesota"), ("ms", "mississippi"), ("mo", "missouri"),
+        ("mt", "montana"), ("ne", "nebraska"), ("nv", "nevada"), ("nh", "new hampshire"), ("nj", "new jersey"),
+        ("nm", "new mexico"), ("ny", "new york"), ("nc", "north carolina"), ("nd", "north dakota"), ("oh", "ohio"),
+        ("ok", "oklahoma"), ("or", "oregon"), ("pa", "pennsylvania"), ("ri", "rhode island"), ("sc", "south carolina"),
+        ("sd", "south dakota"), ("tn", "tennessee"), ("tx", "texas"), ("ut", "utah"), ("vt", "vermont"),
+        ("va", "virginia"), ("wa", "washington"), ("wv", "west virginia"), ("wi", "wisconsin"), ("wy", "wyoming"),
+    ];
+    S.iter().find(|(k, _)| *k == a).map(|(_, v)| *v)
 }
 
 /// Finds `"key":[ ... ]` and returns the `[...]` slice (brackets included),
