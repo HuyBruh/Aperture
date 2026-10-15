@@ -195,6 +195,28 @@ impl ProScreen {
 }
 
 // ------------------------------------------------------------------- layout
+//
+// One type scale for the whole screen (cap heights at 462 px panel height):
+//   XL 60  the clock and the ring percentages
+//   L  34  every value (temperatures, watts, clocks, RPM, VRAM, FPS, RAM, net, ...)
+//   M  17  names, sub-lines, date, weather text
+//   S  13.5 labels / headers (spaced capitals) and units
+// Spacing is on a 2 px grid; panels share the same header, subtitle and graph rows.
+
+#[derive(Clone, Copy)]
+struct Scale {
+    k: f32,
+    xl: f32,
+    l: f32,
+    m: f32,
+    s: f32,
+}
+
+impl Scale {
+    fn new(k: f32) -> Self {
+        Scale { k, xl: 60.0 * k, l: 34.0 * k, m: 17.0 * k, s: 13.5 * k }
+    }
+}
 
 fn paint(
     p: &mut Painter,
@@ -206,11 +228,11 @@ fn paint(
     cover: Option<&Cover>,
 ) {
     let k = (h / 462.0).min(w / 1920.0 * 1.15).clamp(0.5, 2.0);
+    let sc = Scale::new(k);
     let m = (10.0 * k).round();
-    let gap = (10.0 * k).round();
+    let gap = (12.0 * k).round();
     let ph = h - 2.0 * m;
-    // Column widths (design units), shared out over the available width.
-    let weights = [272.0f32, 458.0, 508.0, 288.0, 334.0];
+    let weights = [268.0f32, 408.0, 584.0, 288.0, 304.0];
     let avail = w - 2.0 * m - gap * (weights.len() as f32 - 1.0);
     let sum: f32 = weights.iter().sum();
     let mut xs = Vec::new();
@@ -223,14 +245,14 @@ fn paint(
     let top = m;
     let half = ((ph - gap) / 2.0).floor();
 
-    draw_time(p, (xs[0].0, top, xs[0].1, ph), k, d, now);
-    draw_cpu(p, (xs[1].0, top, xs[1].1, ph), k, d, hist.0);
-    draw_gpu(p, (xs[2].0, top, xs[2].1, ph), k, d, hist.1);
-    draw_ram(p, (xs[3].0, top, xs[3].1, half), k, d);
-    draw_disk(p, (xs[3].0, top + half + gap, xs[3].1, ph - half - gap), k, d);
+    draw_time(p, (xs[0].0, top, xs[0].1, ph), &sc, d, now);
+    draw_cpu(p, (xs[1].0, top, xs[1].1, ph), &sc, d, hist.0);
+    draw_gpu(p, (xs[2].0, top, xs[2].1, ph), &sc, d, hist.1);
+    draw_ram(p, (xs[3].0, top, xs[3].1, half), &sc, d);
+    draw_disk(p, (xs[3].0, top + half + gap, xs[3].1, ph - half - gap), &sc, d);
     let media_h = ((ph - gap) * 0.60).floor();
-    draw_media(p, (xs[4].0, top, xs[4].1, media_h), k, d, cover);
-    draw_net(p, (xs[4].0, top + media_h + gap, xs[4].1, ph - media_h - gap), k, d, hist.2);
+    draw_media(p, (xs[4].0, top, xs[4].1, media_h), &sc, d, cover);
+    draw_net(p, (xs[4].0, top + media_h + gap, xs[4].1, ph - media_h - gap), &sc, d, hist.2);
 }
 
 // --------------------------------------------------------------- primitives
@@ -289,7 +311,7 @@ fn spaced_width(p: &Painter, text: &str, cap: f32, wt: W, sp: f32) -> f32 {
 /// Returns the baseline of the header.
 fn header(p: &mut Painter, r: R, k: f32, accent: Rgb, title: &str, right: &str) -> f32 {
     let pd = pad(k);
-    let cap = 15.0 * k;
+    let cap = 13.5 * k;
     let base = r.1 + pd + cap;
     circle(p, r.0 + pd + 4.5 * k, base - cap / 2.0, 4.5 * k, accent, 255);
     spaced(p, r.0 + pd + 17.0 * k, base, title, cap, W::Medium, MUTED, 2.0 * k);
@@ -307,13 +329,13 @@ fn value_unit(p: &mut Painter, x: f32, base: f32, value: &str, unit: &str, cap: 
         return vw;
     }
     let g = (cap * 0.12).max(2.0);
-    vw + g + p.text(x + vw + g, base, unit, (cap * 0.46).max(7.0), W::Regular, MUTED, 255)
+    vw + g + p.text(x + vw + g, base, unit, (cap * 0.40).max(7.0), W::Regular, MUTED, 255)
 }
 
 fn value_unit_width(p: &Painter, value: &str, unit: &str, cap: f32, wt: W) -> f32 {
     let mut t = p.width(value, cap, wt);
     if !unit.is_empty() {
-        t += (cap * 0.12).max(2.0) + p.width(unit, (cap * 0.46).max(7.0), W::Regular);
+        t += (cap * 0.12).max(2.0) + p.width(unit, (cap * 0.40).max(7.0), W::Regular);
     }
     t
 }
@@ -365,16 +387,6 @@ fn ring(p: &mut Painter, cx: f32, cy: f32, d: f32, frac: Option<f32>, colors: [R
         let lw = spaced_width(p, label, lcap, W::Medium, 1.5 * k);
         spaced(p, cx - lw / 2.0, base + 9.0 * k + lcap, label, lcap, W::Medium, DIM, 1.5 * k);
     }
-}
-
-/// One stat: small label, big value + unit under it. Returns the value baseline.
-fn stat(p: &mut Painter, x: f32, top: f32, w: f32, label: &str, value: &str, unit: &str, vc: Rgb, k: f32, vcap: f32) -> f32 {
-    let lcap = 13.0 * k;
-    spaced(p, x, top + lcap, label, lcap, W::Medium, DIM, 1.6 * k);
-    let cap = fit_vu(p, value, unit, vcap, w - 6.0 * k, W::Medium);
-    let base = top + lcap + 10.0 * k + vcap;
-    value_unit(p, x, base, value, unit, cap, W::Medium, vc);
-    base
 }
 
 /// Area graph of `hist` (newest on the right), scaled to `max`.
@@ -473,250 +485,235 @@ fn mmss(s: u64) -> String {
 
 // ------------------------------------------------------------------- panels
 
-fn draw_time(p: &mut Painter, r: R, k: f32, d: &Data, now: &chrono::DateTime<Local>) {
+/// Label (S, spaced capitals) with a value (L) + unit under it. Height: [`stat_h`].
+fn stat(p: &mut Painter, sc: &Scale, x: f32, top: f32, w: f32, label: &str, value: &str, unit: &str, vc: Rgb) {
+    let k = sc.k;
+    spaced(p, x, top + sc.s, label, sc.s, W::Medium, DIM, 1.6 * k);
+    let cap = fit_vu(p, value, unit, sc.l, w - 4.0 * k, W::Medium);
+    value_unit(p, x, top + sc.s + 7.0 * k + sc.l, value, unit, cap, W::Medium, vc);
+}
+
+fn stat_h(sc: &Scale) -> f32 {
+    sc.s + 7.0 * sc.k + sc.l
+}
+
+fn draw_time(p: &mut Painter, r: R, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>) {
+    let k = sc.k;
     panel(p, r, k);
     let (x, y, w, h) = r;
     let pd = pad(k);
     let inner = w - 2.0 * pd;
     // weekday + date
     let wd = i18n::weekday(now).to_uppercase();
-    let wcap = 15.0 * k;
-    spaced(p, x + pd, y + pd + wcap, &wd, wcap, W::Medium, MUTED, 2.4 * k);
+    let wb = y + pd + sc.s;
+    spaced(p, x + pd, wb, &wd, sc.s, W::Medium, MUTED, 2.2 * k);
     let date = crate::tiles::nice_case(&i18n::day_month_year(now));
-    let dcap = p.fit(&date, 23.0 * k, inner, W::Regular);
-    let date_base = y + pd + wcap + 13.0 * k + dcap;
+    let dcap = p.fit(&date, sc.m, inner, W::Regular);
+    let date_base = wb + 14.0 * k + sc.m;
     p.text(x + pd, date_base, &date, dcap, W::Regular, TEXT, 255);
-    // big time
+    // the clock
     let t = now.format("%H:%M").to_string();
-    let tcap = p.fit(&t, 100.0 * k, inner, W::Light);
+    let tcap = p.fit(&t, sc.xl * 1.25, inner, W::Light);
     let tw = p.width(&t, tcap, W::Light);
-    let tbase = date_base + 26.0 * k + tcap;
+    let tbase = date_base + 28.0 * k + tcap;
     let tx = x + (w - tw) / 2.0;
     p.text(tx, tbase, &t, tcap, W::Light, TEXT, 255);
-    // seconds: a thin progress line under the time
+    // seconds: a thin line under the time
     let sy = tbase + 18.0 * k;
     let frac = now.second() as f32 / 59.0;
-    p.layer.fill_rrect((tx, sy, tw, 4.0 * k), 2.0 * k, &|_| WHITE, 24);
+    p.layer.fill_rrect((x + pd, sy, inner, 4.0 * k), 2.0 * k, &|_| WHITE, 24);
     if frac > 0.0 {
-        let fw = (tw * frac).max(4.0 * k);
-        p.layer.fill_rrect((tx, sy, fw, 4.0 * k), 2.0 * k, &move |t| gradient_at(&[(150, 154, 168), WHITE], t), 255);
+        let fw = (inner * frac).max(4.0 * k);
+        p.layer.fill_rrect((x + pd, sy, fw, 4.0 * k), 2.0 * k, &move |t| gradient_at(&[(150, 154, 168), WHITE], t), 255);
     }
-    // separator + weather
-    let sep = (sy + 22.0 * k).round();
+    // weather
+    let sep = (sy + 24.0 * k).round();
     capsule(p, (x + pd, sep), (x + w - pd, sep), 0.5, WHITE, 30);
-    let lcap = 14.0 * k;
+    let lb = sep + 18.0 * k + sc.s;
     let Some(wt) = d.weather else {
-        spaced(p, x + pd, sep + 18.0 * k + lcap, "WEATHER", lcap, W::Medium, DIM, 1.6 * k);
-        p.text(x + pd, sep + 70.0 * k, "--", 34.0 * k, W::Regular, DIM, 255);
+        spaced(p, x + pd, lb, "WEATHER", sc.s, W::Medium, DIM, 1.6 * k);
+        p.text(x + pd, lb + 20.0 * k + sc.l, "--", sc.l, W::Medium, DIM, 255);
         return;
     };
     let city = wt.city.clone().unwrap_or_else(|| "WEATHER".into()).to_uppercase();
-    let city = ellipsize(p, &city, lcap, W::Medium, inner - 24.0 * k);
-    spaced(p, x + pd, sep + 18.0 * k + lcap, &city, lcap, W::Medium, DIM, 1.6 * k);
-    let wy = sep + 42.0 * k;
-    let isz = 58.0 * k;
+    let city = ellipsize(p, &city, sc.s, W::Medium, inner - 30.0 * k);
+    spaced(p, x + pd, lb, &city, sc.s, W::Medium, DIM, 1.6 * k);
+    let isz = 52.0 * k;
+    let wy = lb + 14.0 * k;
     let night = !(6..19).contains(&now.hour());
     weather_icon(p, x + pd - 3.0 * k, wy, isz, wt.icon, night);
-    let ttx = x + pd + isz + 10.0 * k;
     let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit));
-    let tcap2 = 46.0 * k;
-    p.text(ttx, wy + tcap2 + 2.0 * k, &temp, tcap2, W::Regular, TEXT, 255);
+    let ttx = x + pd + isz + 12.0 * k;
+    p.text(ttx, wy + isz / 2.0 + sc.l / 2.0, &temp, sc.l, W::Medium, TEXT, 255);
     let cond = crate::tiles::nice_case(weather_icon::condition_name(wt.icon));
     let cond = match wt.humidity {
         Some(hm) => format!("{cond} \u{b7} {hm}%"),
         None => cond,
     };
-    let ccap = p.fit(&cond, 17.0 * k, inner, W::Regular).max(13.0 * k);
-    let cond = ellipsize(p, &cond, ccap, W::Regular, inner);
-    p.text(x + pd, wy + isz + 12.0 * k + ccap, &cond, ccap, W::Regular, MUTED, 255);
-    // the next days, anchored at the bottom
+    let cond = ellipsize(p, &cond, sc.m, W::Regular, inner);
+    p.text(x + pd, wy + isz + 12.0 * k + sc.m, &cond, sc.m, W::Regular, MUTED, 255);
+    // the next three days, at the bottom
     let days: Vec<_> = wt.forecast.iter().skip(1).take(3).collect();
     if !days.is_empty() {
         let cw = inner / days.len() as f32;
         let tb = y + h - pd;
-        let fcap = 17.0 * k;
-        let lb = tb - fcap - 12.0 * k;
+        let db = tb - sc.m - 12.0 * k;
         for (i, f) in days.iter().enumerate() {
             let cx = x + pd + i as f32 * cw;
             let dn = i18n::weekday_short(f.weekday).to_uppercase();
-            let dw = spaced(p, cx, lb, &dn, lcap, W::Medium, DIM, 1.2 * k);
-            let is = 24.0 * k;
-            weather_icon(p, cx + dw + 5.0 * k, lb - lcap / 2.0 - is / 2.0, is, f.icon, false);
+            let dw = spaced(p, cx, db, &dn, sc.s, W::Medium, DIM, 1.2 * k);
+            let is = 22.0 * k;
+            weather_icon(p, cx + dw + 4.0 * k, db - sc.s / 2.0 - is / 2.0, is, f.icon, false);
             let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit));
             let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit));
-            let hw = p.text(cx, tb, &hi, fcap, W::Medium, TEXT, 255);
-            p.text(cx + hw + 3.0 * k, tb, &lo, fcap * 0.72, W::Regular, DIM, 255);
+            let hw = p.text(cx, tb, &hi, sc.m, W::Medium, TEXT, 255);
+            p.text(cx + hw + 3.0 * k, tb, &lo, sc.s, W::Regular, DIM, 255);
         }
     }
 }
 
-/// Header, subtitle and ring shared by the processor and graphics panels.
-/// Returns (stats x, stats width, ring top, ring diameter).
-fn big_panel_top(p: &mut Painter, r: R, k: f32, colors: [Rgb; 2], subtitle: &str, frac: Option<f32>, value: &str, unit: &str, hb: f32) -> (f32, f32, f32, f32) {
-    let (x, _y, w, _h) = r;
-    let pd = pad(k);
-    let scap = 17.0 * k;
-    let sub = ellipsize(p, subtitle, scap, W::Regular, w - 2.0 * pd);
-    p.text(x + pd, hb + 12.0 * k + scap, &sub, scap, W::Regular, TEXT, 255);
-    let rd = 184.0 * k;
-    let ring_top = hb + 12.0 * k + scap + 16.0 * k;
-    ring(p, x + pd + rd / 2.0, ring_top + rd / 2.0, rd, frac, colors, value, unit, "LOAD", k);
-    let sx = x + pd + rd + 22.0 * k;
-    (sx, x + w - pd - sx, ring_top, rd)
+/// Geometry shared by the processor and graphics panels: header, name, ring on the
+/// left, a 4-row grid of stats on the right, a thin graph along the bottom.
+struct BigRows {
+    stats_x: f32,
+    row_tops: [f32; 4],
 }
 
-/// The row of three small stats under the ring, then a small history graph.
-fn big_panel_bottom(p: &mut Painter, r: R, k: f32, below: f32, cells: [(&str, String, &str, Rgb); 3], hist: &VecDeque<f32>, max: f32, colors: [Rgb; 2]) {
+fn big_panel(p: &mut Painter, r: R, sc: &Scale, colors: [Rgb; 2], title: &str, index: &str, name: &str, frac: Option<f32>, value: &str, unit: &str, hist: &VecDeque<f32>) -> BigRows {
+    let k = sc.k;
+    panel(p, r, k);
     let (x, y, w, h) = r;
     let pd = pad(k);
-    let top = below + 12.0 * k;
-    let cw = ((w - 2.0 * pd) / 3.0).floor();
-    let mut base = top;
-    for (i, (label, value, unit, c)) in cells.iter().enumerate() {
-        base = stat(p, x + pd + i as f32 * cw, top, cw, label, value, unit, *c, k, 31.0 * k);
+    let hb = header(p, r, k, colors[0], title, index);
+    let nb = hb + 14.0 * k + sc.m;
+    let name = ellipsize(p, name, sc.m, W::Regular, w - 2.0 * pd);
+    p.text(x + pd, nb, &name, sc.m, W::Regular, TEXT, 255);
+    // graph along the bottom
+    let gh = 46.0 * k;
+    let gb = y + h - pd;
+    sparkline(p, (x + pd, gb - gh, w - 2.0 * pd, gh), hist, 100.0, colors, k);
+    // ring + rows between the name and the graph
+    let top = nb + 16.0 * k;
+    let bottom = gb - gh - 14.0 * k;
+    let area = bottom - top;
+    let rd = 196.0 * k;
+    ring(p, x + pd + rd / 2.0, top + area / 2.0, rd.min(area), frac, colors, value, unit, "LOAD", k);
+    let row = area / 4.0;
+    let off = ((row - stat_h(sc)) / 2.0).max(0.0);
+    let mut row_tops = [0.0; 4];
+    for (i, t) in row_tops.iter_mut().enumerate() {
+        *t = top + i as f32 * row + off;
     }
-    let gtop = base + 14.0 * k;
-    let bottom = y + h - pd;
-    if bottom - gtop > 14.0 * k {
-        sparkline(p, (x + pd, gtop, w - 2.0 * pd, bottom - gtop), hist, max, colors, k);
-    }
+    BigRows { stats_x: x + pd + rd + 22.0 * k, row_tops }
 }
 
-fn draw_cpu(p: &mut Painter, r: R, k: f32, d: &Data, hist: &VecDeque<f32>) {
-    panel(p, r, k);
-    let hb = header(p, r, k, CPU_C[0], "PROCESSOR", "01");
-    let subtitle = if d.cpu_fan_rpm.is_some() && d.cores.0 > 0 {
-        format!("{}  \u{b7}  {}C / {}T", d.cpu_name, d.cores.0, d.cores.1)
-    } else {
-        d.cpu_name.to_string()
-    };
+/// Uptime as ("H:MM", "h") or ("Dd H", "h").
+fn uptime_str(s: u64) -> (String, String) {
+    let (dd, hh, mm) = (s / 86_400, (s % 86_400) / 3600, (s % 3600) / 60);
+    if dd > 0 { (format!("{dd}d {hh}"), "h".into()) } else { (format!("{hh}:{mm:02}"), "h".into()) }
+}
+
+fn draw_cpu(p: &mut Painter, r: R, sc: &Scale, d: &Data, hist: &VecDeque<f32>) {
     let pct = format!("{:.0}", d.cpu_pct);
-    let (sx, sw, rt, rd) = big_panel_top(p, r, k, CPU_C, &subtitle, Some(d.cpu_pct / 100.0), &pct, "%", hb);
-    let cw = (sw / 2.0).floor();
-    let row = rd / 2.0;
-    let vcap = 42.0 * k;
+    let b = big_panel(p, r, sc, CPU_C, "PROCESSOR", "01", d.cpu_name, Some(d.cpu_pct / 100.0), &pct, "%", hist);
+    let cw = r.0 + r.2 - pad(sc.k) - b.stats_x;
     let (tv, tc) = match d.cpu_temp {
         Some(t) => (format!("{t:.0}"), temp_color(t, 80.0, 90.0)),
         None => ("--".into(), DIM),
     };
-    stat(p, sx, rt + 8.0 * k, cw, "TEMP", &tv, "\u{b0}C", tc, k, vcap);
+    stat(p, sc, b.stats_x, b.row_tops[0], cw, "TEMP", &tv, "\u{b0}C", tc);
     let pw = d.cpu_power.map_or("--".into(), |v| format!("{v:.0}"));
-    stat(p, sx + cw, rt + 8.0 * k, cw, "POWER", &pw, "W", TEXT, k, vcap);
+    stat(p, sc, b.stats_x, b.row_tops[1], cw, "POWER", &pw, "W", TEXT);
     let clk = d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0));
-    stat(p, sx, rt + row + 8.0 * k, cw, "CLOCK", &clk, "GHz", TEXT, k, vcap);
+    stat(p, sc, b.stats_x, b.row_tops[2], cw, "CLOCK", &clk, "GHz", TEXT);
     match d.cpu_fan_rpm {
-        Some(rpm) => stat(p, sx + cw, rt + row + 8.0 * k, cw, "FAN", &rpm.to_string(), "RPM", TEXT, k, vcap),
+        Some(rpm) => stat(p, sc, b.stats_x, b.row_tops[3], cw, "FAN", &rpm.to_string(), "RPM", TEXT),
         None => {
-            let cores = if d.cores.0 > 0 { format!("{}/{}", d.cores.0, d.cores.1) } else { d.cores.1.to_string() };
-            stat(p, sx + cw, rt + row + 8.0 * k, cw, "CORES", &cores, "", TEXT, k, vcap)
+            let (uv, uu) = uptime_str(d.uptime_s);
+            stat(p, sc, b.stats_x, b.row_tops[3], cw, "UPTIME", &uv, &uu, TEXT)
         }
-    };
-    let (avg, peak) = if hist.is_empty() {
-        (d.cpu_pct, d.cpu_pct)
-    } else {
-        (hist.iter().sum::<f32>() / hist.len() as f32, hist.iter().cloned().fold(0.0, f32::max))
-    };
-    let s = d.uptime_s;
-    let (dd, hh, mm) = (s / 86_400, (s % 86_400) / 3600, (s % 3600) / 60);
-    let up = if dd > 0 { format!("{dd}d {hh}h") } else { format!("{hh}h {mm:02}m") };
-    big_panel_bottom(
-        p,
-        r,
-        k,
-        rt + rd,
-        [("AVG 2M", format!("{avg:.0}"), "%", TEXT), ("PEAK 2M", format!("{peak:.0}"), "%", TEXT), ("UPTIME", up, "", TEXT)],
-        hist,
-        100.0,
-        CPU_C,
-    );
+    }
 }
 
-fn draw_gpu(p: &mut Painter, r: R, k: f32, d: &Data, hist: &VecDeque<f32>) {
-    panel(p, r, k);
+fn draw_gpu(p: &mut Painter, r: R, sc: &Scale, d: &Data, hist: &VecDeque<f32>) {
     let g = d.gpu;
-    let fps = g.fps.filter(|f| *f > 0);
-    let hb = header(p, r, k, GPU_C[0], "GRAPHICS", "02");
     let name = g.name.clone().unwrap_or_else(|| "GPU".into());
     let pct = d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}"));
     let unit = if d.gpu_pct.is_some() { "%" } else { "" };
-    let (sx, sw, rt, rd) = big_panel_top(p, r, k, GPU_C, &name, d.gpu_pct.map(|v| v / 100.0), &pct, unit, hb);
-    let cw = (sw / 2.0).floor();
-    let row = rd / 2.0;
-    let vcap = 42.0 * k;
+    let b = big_panel(p, r, sc, GPU_C, "GRAPHICS", "02", &name, d.gpu_pct.map(|v| v / 100.0), &pct, unit, hist);
+    let cw = ((r.0 + r.2 - pad(sc.k) - b.stats_x) / 2.0).floor();
+    let (x0, x1) = (b.stats_x, b.stats_x + cw);
     let t = |v: Option<i32>, warn: f32, hot: f32| match v {
         Some(t) => (t.to_string(), temp_color(t as f32, warn, hot)),
         None => ("--".to_string(), DIM),
     };
     let (tv, tc) = t(g.temp_edge_c, 80.0, 90.0);
-    stat(p, sx, rt + 8.0 * k, cw, "TEMP", &tv, "\u{b0}C", tc, k, vcap);
+    stat(p, sc, x0, b.row_tops[0], cw, "TEMP", &tv, "\u{b0}C", tc);
     let (hv, hc) = t(g.temp_hotspot_c, 95.0, 105.0);
-    stat(p, sx + cw, rt + 8.0 * k, cw, "HOTSPOT", &hv, "\u{b0}C", hc, k, vcap);
+    stat(p, sc, x1, b.row_tops[0], cw, "HOTSPOT", &hv, "\u{b0}C", hc);
     let pw = g.power_w.map_or("--".into(), |v| v.to_string());
-    stat(p, sx, rt + row + 8.0 * k, cw, "POWER", &pw, "W", TEXT, k, vcap);
+    stat(p, sc, x0, b.row_tops[1], cw, "POWER", &pw, "W", TEXT);
     let fan = g.fan_rpm.map_or("--".into(), |v| v.max(0).to_string());
-    stat(p, sx + cw, rt + row + 8.0 * k, cw, "FAN", &fan, "RPM", TEXT, k, vcap);
-
+    stat(p, sc, x1, b.row_tops[1], cw, "FAN", &fan, "RPM", TEXT);
     let clk = g.clock_mhz.filter(|c| *c > 0).map_or("--".into(), |v| v.to_string());
+    stat(p, sc, x0, b.row_tops[2], cw, "CLOCK", &clk, "MHz", TEXT);
     let (vv, vu) = match (g.vram_used_mb, g.vram_total_mb) {
         (Some(u), Some(t)) if t > 0 => (format!("{:.1}", u as f32 / 1024.0), format!("/{:.0} GB", t as f32 / 1024.0)),
         (Some(u), _) => (format!("{:.1}", u as f32 / 1024.0), "GB".to_string()),
         _ => ("--".into(), String::new()),
     };
-    let (fv, fu, fc) = match fps {
-        Some(f) => (f.to_string(), format!("{:.1} ms", 1000.0 / f as f32), FPS_C),
-        None => ("--".to_string(), String::new(), DIM),
-    };
-    big_panel_bottom(
-        p,
-        r,
-        k,
-        rt + rd,
-        [("CLOCK", clk, "MHz", TEXT), ("VRAM", vv, vu.as_str(), TEXT), ("FPS", fv, fu.as_str(), fc)],
-        hist,
-        100.0,
-        GPU_C,
-    );
+    stat(p, sc, x1, b.row_tops[2], cw, "VRAM", &vv, &vu, TEXT);
+    match g.fps.filter(|f| *f > 0) {
+        Some(f) => {
+            stat(p, sc, x0, b.row_tops[3], cw, "FPS", &f.to_string(), "", FPS_C);
+            stat(p, sc, x1, b.row_tops[3], cw, "FRAME TIME", &format!("{:.1}", 1000.0 / f as f32), "ms", FPS_C);
+        }
+        None => {
+            stat(p, sc, x0, b.row_tops[3], cw, "FPS", "--", "", DIM);
+            stat(p, sc, x1, b.row_tops[3], cw, "FRAME TIME", "--", "", DIM);
+        }
+    }
 }
 
-/// Small card: header, a ring on the right, a big value and two lines on the left.
-fn card(p: &mut Painter, r: R, k: f32, colors: [Rgb; 2], title: &str, index: &str, frac: Option<f32>, ring_txt: &str, value: (&str, &str, Rgb), line1: &str, line2: &str) {
+/// Small card: header, a ring on the right, a value (L) and two lines (M) on the left.
+fn card(p: &mut Painter, r: R, sc: &Scale, colors: [Rgb; 2], title: &str, index: &str, frac: Option<f32>, ring_txt: &str, value: (&str, &str, Rgb), line1: &str, line2: &str) {
+    let k = sc.k;
     panel(p, r, k);
     let (x, y, w, h) = r;
     let pd = pad(k);
     let hb = header(p, r, k, colors[0], title, index);
-    let body_top = hb + 10.0 * k;
+    let body_top = hb + 12.0 * k;
     let body_h = y + h - pd - body_top;
-    let rd = body_h.min(w * 0.38).max(30.0);
+    let rd = body_h.min(w * 0.36).max(30.0);
     let cx = x + w - pd - rd / 2.0;
     let cy = body_top + body_h / 2.0;
     ring(p, cx, cy, rd, frac, colors, ring_txt, if frac.is_some() { "%" } else { "" }, "", k);
     let lw = cx - rd / 2.0 - 12.0 * k - (x + pd);
-    let vcap = fit_vu(p, value.0, value.1, 50.0 * k, lw, W::Medium);
-    let l1 = p.fit(line1, 17.0 * k, lw, W::Regular).max(12.0 * k);
-    let l2 = if line2.is_empty() { 0.0 } else { p.fit(line2, 15.0 * k, lw, W::Regular).max(10.5 * k) };
-    let block = vcap + 14.0 * k + l1 + if line2.is_empty() { 0.0 } else { 10.0 * k + l2 };
-    let vb = cy - block / 2.0 + vcap;
+    let vcap = fit_vu(p, value.0, value.1, sc.l, lw, W::Medium);
+    let l2cap = if line2.is_empty() { 0.0 } else { p.fit(line2, sc.m, lw, W::Regular) };
+    let block = sc.l + 14.0 * k + sc.m + if line2.is_empty() { 0.0 } else { 10.0 * k + sc.m };
+    let vb = cy - block / 2.0 + sc.l;
     value_unit(p, x + pd, vb, value.0, value.1, vcap, W::Medium, value.2);
-    let s1 = ellipsize(p, line1, l1, W::Regular, lw);
-    p.text(x + pd, vb + 14.0 * k + l1, &s1, l1, W::Regular, MUTED, 255);
+    let s1 = ellipsize(p, line1, sc.m, W::Regular, lw);
+    p.text(x + pd, vb + 14.0 * k + sc.m, &s1, sc.m, W::Regular, MUTED, 255);
     if !line2.is_empty() {
-        let s2 = ellipsize(p, line2, l2, W::Regular, lw);
-        p.text(x + pd, vb + 14.0 * k + l1 + 10.0 * k + l2, &s2, l2, W::Regular, DIM, 255);
+        let s2 = ellipsize(p, line2, l2cap, W::Regular, lw);
+        p.text(x + pd, vb + 14.0 * k + 2.0 * sc.m + 10.0 * k, &s2, l2cap, W::Regular, DIM, 255);
     }
 }
 
-fn draw_ram(p: &mut Painter, r: R, k: f32, d: &Data) {
+fn draw_ram(p: &mut Painter, r: R, sc: &Scale, d: &Data) {
     let frac = if d.ram_total_mb > 0 { d.ram_used_mb as f32 / d.ram_total_mb as f32 } else { 0.0 };
     let pct = format!("{:.0}", frac * 100.0);
     let used = gb(d.ram_used_mb);
     let total = format!("of {} GB", gb(d.ram_total_mb));
     let free = format!("{} GB free", gb(d.ram_total_mb.saturating_sub(d.ram_used_mb)));
-    card(p, r, k, RAM_C, "MEMORY", "03", Some(frac), &pct, (used.as_str(), "GB", TEXT), &total, &free);
+    card(p, r, sc, RAM_C, "MEMORY", "03", Some(frac), &pct, (used.as_str(), "GB", TEXT), &total, &free);
 }
 
-fn draw_disk(p: &mut Painter, r: R, k: f32, d: &Data) {
+fn draw_disk(p: &mut Painter, r: R, sc: &Scale, d: &Data) {
     let (rd, wr) = d.disk_rate;
-    let io = format!("R/W {:.1}/{:.1} MB/s", rd, wr);
+    let io = format!("R {:.1}  W {:.1} MB/s", rd, wr);
     match d.disk {
         Some(di) => {
             let pct = format!("{:.0}", di.used_frac() * 100.0);
@@ -724,33 +721,32 @@ fn draw_disk(p: &mut Painter, r: R, k: f32, d: &Data) {
                 Some(t) => (t.to_string(), temp_color(t as f32, 60.0, 70.0)),
                 None => ("--".to_string(), DIM),
             };
-            let space = format!("{} {:.0}/{:.0} GB", di.label, di.used_gb, di.total_gb);
-            card(p, r, k, SSD_C, "STORAGE", "04", Some(di.used_frac()), &pct, (tv.as_str(), "\u{b0}C", tc), &space, &io);
+            let space = format!("{:.0}/{:.0} GB", di.used_gb, di.total_gb);
+            card(p, r, sc, SSD_C, "STORAGE", "04", Some(di.used_frac()), &pct, (tv.as_str(), "\u{b0}C", tc), &space, &io);
         }
-        None => card(p, r, k, SSD_C, "STORAGE", "04", None, "--", ("--", "", DIM), &io, ""),
+        None => card(p, r, sc, SSD_C, "STORAGE", "04", None, "--", ("--", "", DIM), &io, ""),
     }
 }
 
-fn draw_media(p: &mut Painter, r: R, k: f32, d: &Data, cover: Option<&Cover>) {
+fn draw_media(p: &mut Painter, r: R, sc: &Scale, d: &Data, cover: Option<&Cover>) {
+    let k = sc.k;
     panel(p, r, k);
     let (x, y, w, h) = r;
     let pd = pad(k);
     let accent = cover.map_or((200, 204, 214), |c| c.accent);
     let hb = header(p, r, k, accent, "NOW PLAYING", "05");
     let Some(t) = d.track else {
-        // idle: a note and a line of text
         let cx = x + w / 2.0;
         let cy = hb + (y + h - hb) / 2.0 - 10.0 * k;
         music_note(p, cx, cy - 8.0 * k, 34.0 * k, DIM);
         let s = "Nothing playing";
-        let cap = 17.0 * k;
-        let sw = p.width(s, cap, W::Regular);
-        p.text(cx - sw / 2.0, cy + 40.0 * k, s, cap, W::Regular, DIM, 255);
+        let sw = p.width(s, sc.m, W::Regular);
+        p.text(cx - sw / 2.0, cy + 40.0 * k, s, sc.m, W::Regular, DIM, 255);
         return;
     };
-    let body_top = hb + 14.0 * k;
-    let bar_zone = 42.0 * k;
-    let cs = (y + h - pd - bar_zone - body_top).min(w * 0.40).max(24.0).floor();
+    let body_top = hb + 16.0 * k;
+    let bar_zone = 44.0 * k;
+    let cs = (y + h - pd - bar_zone - body_top).min(w * 0.36).max(24.0).floor();
     let (cx0, cy0) = (x + pd, body_top);
     match cover {
         Some(c) => blit_cover(p, c, cx0, cy0, cs, 12.0 * k),
@@ -762,16 +758,14 @@ fn draw_media(p: &mut Painter, r: R, k: f32, d: &Data, cover: Option<&Cover>) {
     // title (2 lines max) + artist
     let tx = cx0 + cs + 14.0 * k;
     let tw = x + w - pd - tx;
-    let tcap = 20.0 * k;
-    let lines = wrap2(p, &t.title, tcap, W::Medium, tw);
-    let mut base = cy0 + tcap + 2.0 * k;
+    let lines = wrap2(p, &t.title, sc.m, W::Medium, tw);
+    let mut base = cy0 + sc.m + 2.0 * k;
     for l in &lines {
-        p.text(tx, base, l, tcap, W::Medium, TEXT, 255);
-        base += tcap + 10.0 * k;
+        p.text(tx, base, l, sc.m, W::Medium, TEXT, 255);
+        base += sc.m + 10.0 * k;
     }
-    let acap = 17.0 * k;
-    let artist = ellipsize(p, &t.artist, acap, W::Regular, tw);
-    p.text(tx, base + 4.0 * k, &artist, acap, W::Regular, MUTED, 255);
+    let artist = ellipsize(p, &t.artist, sc.m, W::Regular, tw);
+    p.text(tx, base + 2.0 * k, &artist, sc.m, W::Regular, MUTED, 255);
     // progress
     let bh = 5.0 * k;
     let by = y + h - pd - bh;
@@ -786,37 +780,38 @@ fn draw_media(p: &mut Painter, r: R, k: f32, d: &Data, cover: Option<&Cover>) {
             p.layer.fill_rrect((x + pd, by, fw, bh), bh / 2.0, &move |t| lerp_rgb(a0, a1, t), 255);
             circle(p, x + pd + fw, by + bh / 2.0, 6.5 * k, WHITE, 255);
         }
-        let cap = 15.0 * k;
         let l = mmss(pos / 1000);
         let rr = mmss(tl.duration_ms / 1000);
-        p.text(x + pd, by - 11.0 * k, &l, cap, W::Medium, MUTED, 255);
-        let rw = p.width(&rr, cap, W::Medium);
-        p.text(x + w - pd - rw, by - 11.0 * k, &rr, cap, W::Medium, DIM, 255);
+        p.text(x + pd, by - 12.0 * k, &l, sc.s, W::Medium, MUTED, 255);
+        let rw = p.width(&rr, sc.s, W::Medium);
+        p.text(x + w - pd - rw, by - 12.0 * k, &rr, sc.s, W::Medium, DIM, 255);
     } else {
         p.layer.fill_rrect((x + pd, by, bw, bh), bh / 2.0, &|_| WHITE, 20);
     }
 }
 
-fn draw_net(p: &mut Painter, r: R, k: f32, d: &Data, hist: &VecDeque<f32>) {
+fn draw_net(p: &mut Painter, r: R, sc: &Scale, d: &Data, hist: &VecDeque<f32>) {
+    let k = sc.k;
     panel(p, r, k);
     let (x, y, w, h) = r;
     let pd = pad(k);
     let hb = header(p, r, k, NET_C[0], "NETWORK", "06");
-    let peak = hist.iter().cloned().fold(64.0f32, f32::max) * 1.15;
-    let half = (w - 2.0 * pd) / 2.0;
-    let vcap = 40.0 * k;
-    let vb = hb + 16.0 * k + vcap;
-    for (i, (kb, c, down)) in [(d.net_kb.0, NET_C[1], true), (d.net_kb.1, UP_C, false)].into_iter().enumerate() {
-        let cx = x + pd + i as f32 * half;
-        arrow(p, cx + 8.0 * k, vb - vcap / 2.0, 9.0 * k, down, c);
-        let (v, u) = rate(kb);
-        let vc = fit_vu(p, &v, u, vcap, half - 30.0 * k, W::Medium);
-        value_unit(p, cx + 24.0 * k, vb, &v, u, vc, W::Medium, TEXT);
-    }
-    let st = vb + 14.0 * k;
+    let top = hb + 10.0 * k;
     let bottom = y + h - pd;
-    if bottom - st > 10.0 * k {
-        sparkline(p, (x + pd, st, w - 2.0 * pd, bottom - st), hist, peak, NET_C, k);
+    let row = (bottom - top) / 2.0;
+    let vw = (w - 2.0 * pd) * 0.60;
+    for (i, (kb, c, down)) in [(d.net_kb.0, NET_C[1], true), (d.net_kb.1, UP_C, false)].into_iter().enumerate() {
+        let base = top + i as f32 * row + (row + sc.l) / 2.0;
+        arrow(p, x + pd + 9.0 * k, base - sc.l / 2.0, 9.0 * k, down, c);
+        let (v, u) = rate(kb);
+        let vc = fit_vu(p, &v, u, sc.l, vw - 28.0 * k, W::Medium);
+        value_unit(p, x + pd + 28.0 * k, base, &v, u, vc, W::Medium, TEXT);
+    }
+    let peak = hist.iter().cloned().fold(64.0f32, f32::max) * 1.15;
+    let gx = x + pd + vw + 8.0 * k;
+    let gw = x + w - pd - gx;
+    if gw > 30.0 * k {
+        sparkline(p, (gx, top + 14.0 * k, gw, bottom - top - 14.0 * k), hist, peak, NET_C, k);
     }
 }
 
