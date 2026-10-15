@@ -1714,8 +1714,8 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, 
     let (x, y, w, h) = r;
     circle(p, x + 5.0 * k, y + sc.s * 0.5, 5.0 * k, colors[0], 255);
     spaced(p, x + 18.0 * k, y + sc.s, label, sc.s, W::Medium, th().muted, 2.0 * k);
-    let hcap = 128.0 * k;
-    let hb = y + sc.s + 22.0 * k + hcap;
+    let hcap = 108.0 * k;
+    let hb = y + sc.s + 18.0 * k + hcap;
     let cap = fit_vu(p, hero, hero_unit, hcap, w - 10.0 * k, W::Light);
     let hw = p.text(x - 6.0 * k, hb, hero, cap, W::Light, hero_color, 255);
     if !hero_unit.is_empty() {
@@ -1725,25 +1725,18 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, 
         let sw = p.width(side, sc.m, W::Regular);
         p.text(x + w - sw, hb, side, sc.m, W::Regular, th().muted, 255);
     }
-    // stats: three per row, all at the same size; the rows share the space down to the graph
-    let gh = 28.0 * k;
-    let top = hb + 22.0 * k;
-    let rows = stats.len().div_ceil(3).max(1);
+    // stats: two per row, three rows spread evenly to the bottom, all one size
+    let _ = (wide_last, hist);
+    let cw = w / 2.0;
+    let top = hb + 18.0 * k;
     let row_h = sc.s + 8.0 * k + vcap;
-    let pitch = if rows > 1 { ((y + h - gh - 22.0 * k) - (top + row_h)) / (rows - 1) as f32 } else { 0.0 };
+    let pitch = ((y + h) - top - row_h) / 2.0;
     for (i, (l, v, u, c)) in stats.iter().enumerate() {
-        let row = i / 3;
-        let in_row = if row + 1 == rows { stats.len() - row * 3 } else { 3 };
-        let cw = if wide_last && row + 1 == rows { w / in_row as f32 } else { w / 3.0 };
-        let sx = x + (i % 3) as f32 * cw;
-        let sy = top + row as f32 * pitch;
+        let sx = x + (i % 2) as f32 * cw;
+        let sy = top + (i / 2) as f32 * pitch;
         spaced(p, sx, sy + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
-        let cap = fit_vu(p, v, u, vcap, cw - 8.0 * k, W::Medium);
-        value_unit(p, sx, sy + sc.s + 8.0 * k + vcap, v, u, cap, W::Medium, *c);
-    }
-    // a thin history line along the bottom
-    if let Some((hq, max)) = hist {
-        sparkline(p, (x, y + h - gh, w, gh), hq, max, colors, k);
+        let cap = fit_vu(p, v, u, vcap, cw - 10.0 * k, W::Medium);
+        value_unit(p, sx, sy + row_h, v, u, cap, W::Medium, *c);
     }
 }
 
@@ -1766,10 +1759,10 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     }
     let r = |i: usize| (xs[i].0, m, xs[i].1, h - 2.0 * m);
     // one value size for every stat of the three sections (the widest values must fit)
-    let mut vcap = 48.0 * k;
+    let mut vcap = 60.0 * k;
     for (i, tpl) in [(0, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (1, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (2, [("47.9", "GB"), ("12.4", "MB/s"), ("850", "KB/s")])] {
         for (v, u) in tpl {
-            vcap = vcap.min(fit_vu(p, v, u, 48.0 * k, xs[i].1 / 3.0 - 8.0 * k, W::Medium));
+            vcap = vcap.min(fit_vu(p, v, u, 60.0 * k, xs[i].1 / 2.0 - 10.0 * k, W::Medium));
         }
     }
     // CPU
@@ -1810,9 +1803,9 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         ("USED", gb(d.ram_used_mb), "GB".to_string(), th().text),
         ("FREE", gb(d.ram_total_mb.saturating_sub(d.ram_used_mb)), "GB".into(), th().text),
         ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0))),
+        ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
         ("DOWN", dn, du.to_string(), th().text),
         ("UP", un, uu2.to_string(), th().text),
-        ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
     ];
     let side = format!("of {} GB", gb(d.ram_total_mb));
     focus_section(p, r(2), sc, vcap, false, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
@@ -1820,9 +1813,9 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     let (x, y, sw, sh) = r(3);
     let (t, wd, date) = clock_parts(now);
     spaced(p, x, y + sc.s, &format!("{wd}  \u{b7}  {}", date.to_uppercase()), sc.s, W::Medium, th().muted, 2.0 * k);
-    let hcap = 128.0 * k;
+    let hcap = 108.0 * k;
     let cap = p.fit(&t, hcap, sw, W::Light);
-    let hb = y + sc.s + 22.0 * k + hcap;
+    let hb = y + sc.s + 18.0 * k + hcap;
     p.text(x - 6.0 * k, hb, &t, cap, W::Light, th().text, 255);
     if let Some((icon, temp, line)) = weather_text(d) {
         let wy = hb + 22.0 * k;
