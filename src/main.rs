@@ -836,7 +836,7 @@ fn item_key(key: &str) -> Option<(usize, &str)> {
 }
 
 fn is_override_key(key: &str) -> bool {
-    OVERRIDE_KEYS.contains(&key) || item_key(key).is_some() || key == "net_unit" || key == "mem_unit" || key == "ram_unit" || key == "nowplaying_width" || key == "nowplaying_label" || key == "clock_backdrop" || key == "clock_time_size" || key == "clock_date_size" || key == "weather_unit" || key == "ticker_position" || key == "ticker_size" || key == "ticker_color" || key == "ticker_backdrop" || key == "ticker_width" || key == "percent_decimals" || key == "tiles" || key.starts_with("tiles_") || (key.starts_with("tile_") && key.ends_with("_color"))
+    OVERRIDE_KEYS.contains(&key) || item_key(key).is_some() || key == "net_unit" || key == "mem_unit" || key == "ram_unit" || key == "nowplaying_width" || key == "nowplaying_label" || key == "clock_backdrop" || key == "clock_time_size" || key == "clock_date_size" || key == "weather_unit" || key == "ticker_position" || key == "ticker_size" || key == "ticker_color" || key == "ticker_backdrop" || key == "ticker_width" || key == "percent_decimals" || key == "tiles" || key.starts_with("tiles_") || key.starts_with("pro_") || (key.starts_with("tile_") && key.ends_with("_color"))
 }
 
 /// Style for a single item of the info block.
@@ -1082,6 +1082,7 @@ fn parse_ui_options(file: &ConfigFile) -> anyhow::Result<UiOptions> {
         music_progress: file.get_bool("music_progress").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(true),
         effect: parse_effect(file)?,
         tiles: tiles::parse(file)?,
+        pro: pro::parse(file)?,
     })
 }
 
@@ -2694,6 +2695,8 @@ struct UiOptions {
     effect: effect::Settings,
     /// The `tiles` layout: which tiles, font, colors and background (see `tiles.rs`).
     tiles: tiles::Settings,
+    /// The `pro` layout: theme(s) and panel style (see `pro.rs`).
+    pro: pro::Settings,
 }
 
 impl Default for UiOptions {
@@ -2745,6 +2748,7 @@ impl Default for UiOptions {
             music_progress: true,
             effect: effect::Settings::default(),
             tiles: tiles::Settings::default(),
+            pro: pro::Settings::default(),
         }
     }
 }
