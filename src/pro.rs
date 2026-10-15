@@ -1716,7 +1716,11 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, 
     spaced(p, x + 18.0 * k, y + sc.s, label, sc.s, W::Medium, th().muted, 2.0 * k);
     let hcap = 108.0 * k;
     let hb = y + sc.s + 18.0 * k + hcap;
-    let cap = fit_vu(p, hero, hero_unit, hcap, w - 10.0 * k, W::Light);
+    let cap = fit_vu(p, hero, hero_unit, hcap, w * 0.6 - 14.0 * k, W::Light);
+    // a small history line in the free corner next to the big number
+    if let Some((hq, max)) = hist {
+        sparkline(p, (x + w * 0.6, y + sc.s + 40.0 * k, w * 0.4, 40.0 * k), hq, max, colors, k);
+    }
     let hw = p.text(x - 6.0 * k, hb, hero, cap, W::Light, hero_color, 255);
     if !hero_unit.is_empty() {
         p.text(x - 6.0 * k + hw + 4.0 * k, hb - cap + sc.l, hero_unit, sc.l, W::Light, th().muted, 255);
@@ -1726,7 +1730,7 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, 
         p.text(x + w - sw, hb, side, sc.m, W::Regular, th().muted, 255);
     }
     // stats: two per row, three rows spread evenly to the bottom, all one size
-    let _ = (wide_last, hist);
+    let _ = wide_last;
     let cw = w / 2.0;
     let top = hb + 18.0 * k;
     let row_h = sc.s + 8.0 * k + vcap;
@@ -1818,28 +1822,30 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     let hb = y + sc.s + 18.0 * k + hcap;
     p.text(x - 6.0 * k, hb, &t, cap, W::Light, th().text, 255);
     if let Some((icon, temp, line)) = weather_text(d) {
-        let wy = hb + 22.0 * k;
-        weather_icon(p, x - 3.0 * k, wy, 36.0 * k, icon, !(6..19).contains(&now.hour()));
-        let tw = p.text(x + 42.0 * k, wy + 18.0 * k + sc.m / 2.0, &temp, sc.m * 1.3, W::Medium, th().text, 255);
-        let line = ellipsize(p, &line, sc.s, W::Regular, sw - 60.0 * k - tw);
-        p.text(x + 52.0 * k + tw, wy + 18.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
+        let wy = hb + 20.0 * k;
+        weather_icon(p, x - 3.0 * k, wy, 46.0 * k, icon, !(6..19).contains(&now.hour()));
+        let base = wy + 23.0 * k + sc.l / 2.0;
+        let tw = p.text(x + 52.0 * k, base, &temp, sc.l, W::Medium, th().text, 255);
+        let line = ellipsize(p, &line, sc.m, W::Regular, sw - 66.0 * k - tw);
+        p.text(x + 64.0 * k + tw, base, &line, sc.m, W::Regular, th().muted, 255);
     }
     // the next three days: day + icon, then high / low
     if let Some(wt) = d.weather {
         let days: Vec<_> = wt.forecast.iter().skip(1).take(3).collect();
-        let fy = hb + 86.0 * k;
+        let fy = hb + 110.0 * k;
         let cw = sw / 3.0;
         for (i, f) in days.iter().enumerate() {
             let cx = x + i as f32 * cw;
             let dn = i18n::weekday_short(f.weekday).to_uppercase();
             let dw = spaced(p, cx, fy, &dn, sc.s, W::Medium, th().dim, 1.4 * k);
-            weather_icon(p, cx + dw + 8.0 * k, fy - sc.s / 2.0 - 12.0 * k, 24.0 * k, f.icon, false);
+            weather_icon(p, cx + dw + 8.0 * k, fy - sc.s / 2.0 - 15.0 * k, 30.0 * k, f.icon, false);
             let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit).round() + 0.0);
             let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit).round() + 0.0);
-            let ty = fy + 12.0 * k + sc.m * 1.2;
-            let hw = p.text(cx, ty, &hi, sc.m * 1.2, W::Medium, th().text, 255);
-            p.text(cx + hw + 8.0 * k, ty, &lo, sc.m, W::Regular, th().dim, 255);
+            let ty = fy + 14.0 * k + sc.l * 0.8;
+            let hw = p.text(cx, ty, &hi, sc.l * 0.8, W::Medium, th().text, 255);
+            p.text(cx + hw + 8.0 * k, ty, &lo, sc.m * 1.15, W::Regular, th().dim, 255);
         }
     }
-    now_playing_compact(p, (x, y + sh - 64.0 * k, sw, 64.0 * k), sc, d, cover, true);
+    let big = Scale { m: sc.m * 1.3, s: sc.s * 1.25, ..*sc };
+    now_playing_compact(p, (x, y + sh - 90.0 * k, sw, 90.0 * k), &big, d, cover, true);
 }
