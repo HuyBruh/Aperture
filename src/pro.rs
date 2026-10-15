@@ -1709,7 +1709,7 @@ fn paint_cockpit(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &ch
 // A few huge numbers: the temperatures of CPU and GPU, memory use and the clock,
 // each with a short row of details and a soft load graph underneath.
 
-fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, colors: [Rgb; 2], label: &str, hero: &str, hero_unit: &str, hero_color: Rgb, side: &str, stats: &[(&str, String, String, Rgb)], hist: Option<(&VecDeque<f32>, f32)>) {
+fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, wide_last: bool, colors: [Rgb; 2], label: &str, hero: &str, hero_unit: &str, hero_color: Rgb, side: &str, stats: &[(&str, String, String, Rgb)], hist: Option<(&VecDeque<f32>, f32)>) {
     let k = sc.k;
     let (x, y, w, h) = r;
     circle(p, x + 5.0 * k, y + sc.s * 0.5, 5.0 * k, colors[0], 255);
@@ -1725,20 +1725,24 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, colors: [Rgb; 2],
         let sw = p.width(side, sc.m, W::Regular);
         p.text(x + w - sw, hb, side, sc.m, W::Regular, th().muted, 255);
     }
-    // stats: three per row, all at the same size
-    let cw = w / 3.0;
+    // stats: three per row, all at the same size; the rows share the space down to the graph
+    let gh = 28.0 * k;
     let top = hb + 22.0 * k;
-    let pitch = sc.s + 8.0 * k + vcap + 18.0 * k;
+    let rows = stats.len().div_ceil(3).max(1);
+    let row_h = sc.s + 8.0 * k + vcap;
+    let pitch = if rows > 1 { ((y + h - gh - 22.0 * k) - (top + row_h)) / (rows - 1) as f32 } else { 0.0 };
     for (i, (l, v, u, c)) in stats.iter().enumerate() {
+        let row = i / 3;
+        let in_row = if row + 1 == rows { stats.len() - row * 3 } else { 3 };
+        let cw = if wide_last && row + 1 == rows { w / in_row as f32 } else { w / 3.0 };
         let sx = x + (i % 3) as f32 * cw;
-        let sy = top + (i / 3) as f32 * pitch;
+        let sy = top + row as f32 * pitch;
         spaced(p, sx, sy + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
         let cap = fit_vu(p, v, u, vcap, cw - 8.0 * k, W::Medium);
         value_unit(p, sx, sy + sc.s + 8.0 * k + vcap, v, u, cap, W::Medium, *c);
     }
     // a thin history line along the bottom
     if let Some((hq, max)) = hist {
-        let gh = 28.0 * k;
         sparkline(p, (x, y + h - gh, w, gh), hq, max, colors, k);
     }
 }
@@ -1746,8 +1750,8 @@ fn focus_section(p: &mut Painter, r: R, sc: &Scale, vcap: f32, colors: [Rgb; 2],
 fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, hist: (&VecDeque<f32>, &VecDeque<f32>, &VecDeque<f32>), cover: Option<&Cover>) {
     let k = sc.k;
     let m = 24.0 * k;
-    let gap = 40.0 * k;
-    let weights = [446.0f32, 476.0, 430.0, 420.0];
+    let gap = 36.0 * k;
+    let weights = [452.0f32, 482.0, 452.0, 386.0];
     let avail = w - 2.0 * m - gap * 3.0;
     let sum: f32 = weights.iter().sum();
     let mut xs = Vec::new();
@@ -1762,10 +1766,10 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     }
     let r = |i: usize| (xs[i].0, m, xs[i].1, h - 2.0 * m);
     // one value size for every stat of the three sections (the widest values must fit)
-    let mut vcap = 42.0 * k;
-    for (i, tpl) in [(0, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (1, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (2, [("12.4", "MB/s"), ("47.9", "GB"), ("100", "%")])] {
+    let mut vcap = 48.0 * k;
+    for (i, tpl) in [(0, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (1, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (2, [("47.9", "GB"), ("12.4", "MB/s"), ("850", "KB/s")])] {
         for (v, u) in tpl {
-            vcap = vcap.min(fit_vu(p, v, u, 42.0 * k, xs[i].1 / 3.0 - 8.0 * k, W::Medium));
+            vcap = vcap.min(fit_vu(p, v, u, 48.0 * k, xs[i].1 / 3.0 - 8.0 * k, W::Medium));
         }
     }
     // CPU
@@ -1780,7 +1784,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     if let Some(rpm) = d.cpu_fan_rpm {
         cpu_stats.push(("FAN", rpm.to_string(), "RPM".into(), th().text));
     }
-    focus_section(p, r(0), sc, vcap, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
+    focus_section(p, r(0), sc, vcap, false, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
     // GPU: FPS has its own cell, it never replaces another value
     let g = d.gpu;
     let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
@@ -1797,7 +1801,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
             None => ("FPS", "--".to_string(), String::new(), th().dim),
         },
     ];
-    focus_section(p, r(1), sc, vcap, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
+    focus_section(p, r(1), sc, vcap, false, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
     // memory + storage + network
     let ram_pct = if d.ram_total_mb > 0 { d.ram_used_mb as f32 * 100.0 / d.ram_total_mb as f32 } else { 0.0 };
     let (dn, du) = rate(d.net_kb.0);
@@ -1806,12 +1810,12 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         ("USED", gb(d.ram_used_mb), "GB".to_string(), th().text),
         ("FREE", gb(d.ram_total_mb.saturating_sub(d.ram_used_mb)), "GB".into(), th().text),
         ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0))),
-        ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
         ("DOWN", dn, du.to_string(), th().text),
         ("UP", un, uu2.to_string(), th().text),
+        ("DISK", d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%".into(), th().text),
     ];
     let side = format!("of {} GB", gb(d.ram_total_mb));
-    focus_section(p, r(2), sc, vcap, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
+    focus_section(p, r(2), sc, vcap, false, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
     // time + weather + now playing
     let (x, y, sw, sh) = r(3);
     let (t, wd, date) = clock_parts(now);
@@ -1827,20 +1831,21 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         let line = ellipsize(p, &line, sc.s, W::Regular, sw - 60.0 * k - tw);
         p.text(x + 52.0 * k + tw, wy + 18.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
     }
-    // the next three days
+    // the next three days: day + icon, then high / low
     if let Some(wt) = d.weather {
         let days: Vec<_> = wt.forecast.iter().skip(1).take(3).collect();
-        let fy = hb + 92.0 * k;
+        let fy = hb + 86.0 * k;
         let cw = sw / 3.0;
         for (i, f) in days.iter().enumerate() {
             let cx = x + i as f32 * cw;
             let dn = i18n::weekday_short(f.weekday).to_uppercase();
             let dw = spaced(p, cx, fy, &dn, sc.s, W::Medium, th().dim, 1.4 * k);
-            weather_icon(p, cx + dw + 6.0 * k, fy - sc.s / 2.0 - 12.0 * k, 24.0 * k, f.icon, false);
+            weather_icon(p, cx + dw + 8.0 * k, fy - sc.s / 2.0 - 12.0 * k, 24.0 * k, f.icon, false);
             let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit));
             let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit));
-            let hw = p.text(cx + dw + 36.0 * k, fy, &hi, sc.m, W::Medium, th().text, 255);
-            p.text(cx + dw + 40.0 * k + hw, fy, &lo, sc.s, W::Regular, th().dim, 255);
+            let ty = fy + 12.0 * k + sc.m * 1.2;
+            let hw = p.text(cx, ty, &hi, sc.m * 1.2, W::Medium, th().text, 255);
+            p.text(cx + hw + 8.0 * k, ty, &lo, sc.m, W::Regular, th().dim, 255);
         }
     }
     now_playing_compact(p, (x, y + sh - 64.0 * k, sw, 64.0 * k), sc, d, cover, true);
