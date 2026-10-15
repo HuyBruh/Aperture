@@ -104,9 +104,35 @@ pub enum Style {
     Flat,
 }
 
-/// `pro_theme`, `pro_style`, `pro_theme_interval` from trofeo.conf.
+/// Arrangement of the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    /// Panels in a row (the first design).
+    Classic,
+    /// Car instrument cluster: two gauges and the clock in the middle.
+    Cockpit,
+    /// Typographic rows with long thin bars, three columns.
+    Horizon,
+    /// A few huge numbers.
+    Focus,
+}
+
+impl Layout {
+    pub const ALL: [Layout; 4] = [Layout::Classic, Layout::Cockpit, Layout::Horizon, Layout::Focus];
+    pub fn name(self) -> &'static str {
+        match self {
+            Layout::Classic => "classic",
+            Layout::Cockpit => "cockpit",
+            Layout::Horizon => "horizon",
+            Layout::Focus => "focus",
+        }
+    }
+}
+
+/// `pro_layout`, `pro_theme`, `pro_style`, `pro_theme_interval` from trofeo.conf.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
+    pub layouts: Vec<Layout>,
     pub themes: Vec<Theme>,
     pub style: Style,
     /// Minutes between two themes when several are listed (0 = only the first).
@@ -115,7 +141,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30 }
+        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30 }
     }
 }
 
@@ -140,6 +166,23 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
         }
         if !list.is_empty() {
             s.themes = list;
+        }
+    }
+    if let Some(v) = file.get("pro_layout") {
+        let mut list = Vec::new();
+        for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty()) {
+            if name == "all" {
+                list.extend_from_slice(&Layout::ALL);
+                continue;
+            }
+            let l = Layout::ALL
+                .iter()
+                .find(|l| l.name() == name)
+                .ok_or_else(|| anyhow::anyhow!("pro_layout: '{name}' is not valid (classic, cockpit, horizon, focus, all)"))?;
+            list.push(*l);
+        }
+        if !list.is_empty() {
+            s.layouts = list;
         }
     }
     if let Some(v) = file.get("pro_style") {
@@ -171,13 +214,13 @@ fn style() -> Style {
     CURRENT.with(|c| c.get().1)
 }
 
-/// The theme in use now: the only one, or the one of this time slot when several rotate.
-fn pick(s: &Settings) -> Theme {
-    if s.themes.len() <= 1 || s.interval_min == 0 {
-        return s.themes.first().copied().unwrap_or(THEMES[0]);
-    }
-    let mins = (Local::now().timestamp().max(0) as u64) / 60;
-    s.themes[((mins / s.interval_min as u64) % s.themes.len() as u64) as usize]
+/// The theme and layout in use now: the only ones, or those of this time slot when
+/// several rotate (every `interval_min` minutes).
+fn pick(s: &Settings) -> (Theme, Layout) {
+    let slot = if s.interval_min == 0 { 0 } else { (Local::now().timestamp().max(0) as u64) / 60 / s.interval_min as u64 };
+    let t = if s.themes.is_empty() { THEMES[0] } else { s.themes[(slot % s.themes.len() as u64) as usize] };
+    let l = if s.layouts.is_empty() { Layout::Classic } else { s.layouts[(slot % s.layouts.len() as u64) as usize] };
+    (t, l)
 }
 
 /// Color right under the content (to "cut" shapes, e.g. the moon).
@@ -232,6 +275,10 @@ pub struct ProScreen {
     last_push: Option<Instant>,
     hist_ver: u64,
     cover: Option<Cover>,
+    /// Titles too long for their box, scrolled on every frame, and since when.
+    marquees: Vec<MarqueeSpec>,
+    marquee_since: Instant,
+    marquee_k: f32,
 }
 
 impl ProScreen {
@@ -245,6 +292,9 @@ impl ProScreen {
             last_push: None,
             hist_ver: 0,
             cover: None,
+            marquees: Vec::new(),
+            marquee_since: Instant::now(),
+            marquee_k: 1.0,
         }
     }
 
@@ -292,7 +342,7 @@ impl ProScreen {
     /// Paints the screen on `fb`; `area` = the part of `fb` the interface may use.
     pub fn draw(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32), d: &Data) {
         let settings = opts().pro;
-        let theme = pick(&settings);
+        let (theme, layout) = pick(&settings);
         CURRENT.with(|c| c.set((theme, settings.style)));
         fb.clear(theme.bg.0, theme.bg.1, theme.bg.2);
         self.push_history(d);
@@ -300,9 +350,10 @@ impl ProScreen {
         let now = Local::now();
         let progress = d.track.and_then(|t| t.timeline).map(|tl| (tl.position_now_ms() / 1000, tl.duration_ms / 1000));
         let sig = format!(
-            "{}{:?}|{area:?}|{:?}|{}|{}|{:.0}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:.1}{:.1}|{:.0}{:.0}|{:?}|{}|{:?}|{:?}|{}",
+            "{}{:?}{:?}|{area:?}|{:?}|{}|{}|{:.0}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:.1}{:.1}|{:.0}{:.0}|{:?}|{}|{:?}|{:?}|{}",
             theme.name,
             settings.style,
+            layout,
             d.cpu_fan_rpm,
             now.format("%H:%M:%S %F"),
             d.cpu_name,
@@ -335,10 +386,39 @@ impl ProScreen {
             let cover = self.cover.as_ref();
             let hist = (&self.cpu, &self.gpu, &self.net);
             let mut p = Painter { layer: &mut self.layer, font: FontStyle::Smooth };
-            paint(&mut p, w as f32, h as f32, d, &now, hist, cover);
+            MARQ.with(|m| m.borrow_mut().clear());
+            let (wf, hf) = (w as f32, h as f32);
+            let k = (hf / 462.0).min(wf / 1920.0 * 1.15).clamp(0.5, 2.0);
+            let sc = Scale::new(k);
+            match layout {
+                Layout::Classic => paint(&mut p, wf, hf, d, &now, hist, cover),
+                Layout::Cockpit => paint_cockpit(&mut p, wf, hf, &sc, d, &now, cover),
+                Layout::Horizon => paint_horizon(&mut p, wf, hf, &sc, d, &now, hist, cover),
+                Layout::Focus => paint_focus(&mut p, wf, hf, &sc, d, &now, hist, cover),
+            }
+            let found = MARQ.with(|m| std::mem::take(&mut *m.borrow_mut()));
+            let same_text = found.iter().map(|m| &m.text).eq(self.marquees.iter().map(|m| &m.text));
+            if !same_text {
+                self.marquee_since = Instant::now();
+            }
+            self.marquees = found;
+            self.marquee_k = k;
             self.sig = sig;
         }
         self.layer.composite_onto(fb, area.0, area.1);
+        let t = self.marquee_since.elapsed().as_secs_f32();
+        for m in &self.marquees {
+            paint_marquee(fb, area.0, area.1, m, self.marquee_k, t);
+        }
+    }
+
+    /// True while a title is scrolling (the main loop then raises the frame rate).
+    pub fn animating(&self) -> bool {
+        let t = self.marquee_since.elapsed().as_secs_f32();
+        self.marquees.iter().any(|m| {
+            let tw = crate::smooth_font::text_width(&m.text, crate::smooth_font::px_for_cap(m.cap), sfw(m.weight));
+            marquee_offset(tw, 70.0 * self.marquee_k, MARQ_SPEED * self.marquee_k, t).1
+        })
     }
 }
 
@@ -939,17 +1019,20 @@ fn draw_media(p: &mut Painter, r: R, sc: &Scale, d: &Data, cover: Option<&Cover>
             music_note(p, cx0 + cs / 2.0, cy0 + cs / 2.0, cs * 0.32, th().muted);
         }
     }
-    // title (2 lines max) + artist
+    // title (one line, scrolls when too long) + artist + album
     let tx = cx0 + cs + 14.0 * k;
     let tw = x + w - pd - tx;
-    let lines = wrap2(p, &t.title, sc.m, W::Medium, tw);
-    let mut base = cy0 + sc.m + 2.0 * k;
-    for l in &lines {
-        p.text(tx, base, l, sc.m, W::Medium, th().text, 255);
-        base += sc.m + 10.0 * k;
+    let title = clean_title(&t.title);
+    let tcap = sc.m * 1.12;
+    let base = cy0 + tcap + 4.0 * k;
+    title_line(p, tx, base, tw, &title, tcap, W::Medium, th().text);
+    let artist = if t.artist.trim().is_empty() { "Unknown artist".to_string() } else { t.artist.clone() };
+    let artist = ellipsize(p, &artist, sc.m, W::Regular, tw);
+    p.text(tx, base + 14.0 * k + sc.m, &artist, sc.m, W::Regular, th().muted, 255);
+    if !t.album.trim().is_empty() && t.album.trim() != t.title.trim() {
+        let album = ellipsize(p, &t.album, sc.s, W::Regular, tw);
+        p.text(tx, base + 14.0 * k + sc.m + 12.0 * k + sc.s, &album, sc.s, W::Regular, th().dim, 255);
     }
-    let artist = ellipsize(p, &t.artist, sc.m, W::Regular, tw);
-    p.text(tx, base + 2.0 * k, &artist, sc.m, W::Regular, th().muted, 255);
     // progress
     let bh = 5.0 * k;
     let by = y + h - pd - bh;
@@ -1217,4 +1300,646 @@ fn wrap2(p: &Painter, text: &str, cap: f32, wt: W, max_w: f32) -> Vec<String> {
         return vec![first.trim_end().to_string()];
     }
     vec![first.trim_end().to_string(), ellipsize(p, rest, cap, wt, max_w)]
+}
+
+// ------------------------------------------------------------- scrolling title
+//
+// A title too long for its box is not painted on the cached layer: its position is
+// recorded here and `ProScreen::draw` scrolls it directly on the frame (hold 3 s,
+// scroll, hold, ...), with soft fades at the edges. Only the scrolling phase asks
+// for a higher frame rate, so a short title costs nothing extra.
+
+#[derive(Clone, PartialEq)]
+struct MarqueeSpec {
+    x: f32,
+    w: f32,
+    base: f32,
+    cap: f32,
+    weight: W,
+    color: Rgb,
+    text: String,
+}
+
+thread_local! {
+    static MARQ: std::cell::RefCell<Vec<MarqueeSpec>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+const MARQ_HOLD: f32 = 3.0;
+const MARQ_SPEED: f32 = 42.0; // px/s at k = 1
+
+fn sfw(w: W) -> crate::smooth_font::Weight {
+    match w {
+        W::Light => crate::smooth_font::Weight::Light,
+        W::Regular => crate::smooth_font::Weight::Regular,
+        W::Medium => crate::smooth_font::Weight::Medium,
+    }
+}
+
+/// One line of text in a box `w` wide: drawn as-is when it fits, scrolled otherwise.
+fn title_line(p: &mut Painter, x: f32, base: f32, w: f32, text: &str, cap: f32, wt: W, color: Rgb) {
+    if p.width(text, cap, wt) <= w {
+        p.text(x, base, text, cap, wt, color, 255);
+    } else {
+        MARQ.with(|m| m.borrow_mut().push(MarqueeSpec { x, w, base, cap, weight: wt, color, text: text.to_string() }));
+    }
+}
+
+/// (offset in px, scrolling now) for a text `tw` wide, `t` seconds after it appeared.
+fn marquee_offset(tw: f32, gap: f32, speed: f32, t: f32) -> (f32, bool) {
+    let run = (tw + gap) / speed;
+    let phase = t % (MARQ_HOLD + run);
+    if phase < MARQ_HOLD { (0.0, false) } else { ((phase - MARQ_HOLD) * speed, true) }
+}
+
+/// Draws a scrolling title straight onto the frame (`ox`, `oy` = where the layer sits).
+fn paint_marquee(fb: &mut Framebuffer, ox: u32, oy: u32, m: &MarqueeSpec, k: f32, t: f32) {
+    let px = crate::smooth_font::px_for_cap(m.cap);
+    let wt = sfw(m.weight);
+    let tw = crate::smooth_font::text_width(&m.text, px, wt);
+    let gap = 70.0 * k;
+    let (off, _) = marquee_offset(tw, gap, MARQ_SPEED * k, t);
+    let fade = 22.0 * k;
+    let (x0, x1) = (m.x, m.x + m.w);
+    let fw = fb.width() as i32;
+    let fh = fb.height() as i32;
+    let (cr, cg, cb) = (m.color.0 as u32, m.color.1 as u32, m.color.2 as u32);
+    let bytes = fb.as_bytes_mut();
+    for copy in 0..2 {
+        let start = m.x - off + copy as f32 * (tw + gap);
+        if start > x1 || start + tw < x0 {
+            continue;
+        }
+        crate::smooth_font::draw_with(&m.text, start, m.base, px, wt, |gx, gy, cov| {
+            let fx = gx as f32 + 0.5;
+            if fx < x0 || fx >= x1 {
+                return;
+            }
+            let mut a = cov as f32 / 255.0;
+            if off > 0.0 {
+                a *= ((fx - x0) / fade).clamp(0.0, 1.0);
+            }
+            a *= ((x1 - fx) / fade).clamp(0.0, 1.0);
+            if a <= 0.0 {
+                return;
+            }
+            let (fx2, fy2) = (gx + ox as i32, gy + oy as i32);
+            if fx2 < 0 || fy2 < 0 || fx2 >= fw || fy2 >= fh {
+                return;
+            }
+            let i = ((fy2 * fw + fx2) * 3) as usize;
+            let a8 = (a * 255.0) as u32;
+            let inv = 255 - a8;
+            bytes[i] = ((cr * a8 + bytes[i] as u32 * inv) / 255) as u8;
+            bytes[i + 1] = ((cg * a8 + bytes[i + 1] as u32 * inv) / 255) as u8;
+            bytes[i + 2] = ((cb * a8 + bytes[i + 2] as u32 * inv) / 255) as u8;
+        });
+    }
+}
+
+/// "Song (Official Music Video) [4K]" -> "Song".
+fn clean_title(t: &str) -> String {
+    const JUNK: &[&str] = &[
+        "official", "video", "audio", "lyric", "mv", "m/v", "4k", "hd", "hq", "visualizer", "remaster", "explicit", "clip", "music",
+    ];
+    let mut out = String::new();
+    let mut depth = 0;
+    let mut chunk = String::new();
+    for c in t.chars() {
+        match c {
+            '(' | '[' | '【' => {
+                if depth == 0 {
+                    chunk.clear();
+                }
+                depth += 1;
+                chunk.push(c);
+            }
+            ')' | ']' | '】' if depth > 0 => {
+                chunk.push(c);
+                depth -= 1;
+                if depth == 0 {
+                    let lc = chunk.to_lowercase();
+                    if !JUNK.iter().any(|j| lc.contains(j)) {
+                        out.push_str(&chunk);
+                    }
+                    chunk.clear();
+                }
+            }
+            _ if depth > 0 => chunk.push(c),
+            _ => out.push(c),
+        }
+    }
+    out.push_str(&chunk);
+    let mut s = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    for tail in [" - Topic", " | Official", " |"] {
+        if let Some(i) = s.find(tail) {
+            if i > 0 {
+                s.truncate(i);
+            }
+        }
+    }
+    let s = s.trim_matches(|c: char| c == '-' || c == '|' || c.is_whitespace()).to_string();
+    if s.is_empty() { t.trim().to_string() } else { s }
+}
+
+// ------------------------------------------------------------------ shapes
+
+/// Arc from `start` degrees (0 = 12 o'clock, clockwise) over `sweep` degrees, round ends.
+/// `color(t)`: t = 0..1 along the drawn arc.
+fn arc2(p: &mut Painter, cx: f32, cy: f32, r_out: f32, thick: f32, start: f32, sweep: f32, color: &dyn Fn(f32) -> Rgb, alpha: u8) {
+    if sweep <= 0.1 || alpha == 0 {
+        return;
+    }
+    let r_in = r_out - thick;
+    let r_mid = r_out - thick / 2.0;
+    let cap = thick / 2.0;
+    let rad = |deg: f32| deg.to_radians();
+    let end = start + sweep;
+    let (sx, sy) = (cx + r_mid * rad(start).sin(), cy - r_mid * rad(start).cos());
+    let (ex, ey) = (cx + r_mid * rad(end).sin(), cy - r_mid * rad(end).cos());
+    let x0 = (cx - r_out - 1.0).floor() as i32;
+    let x1 = (cx + r_out + 1.0).ceil() as i32;
+    let y0 = (cy - r_out - 1.0).floor() as i32;
+    let y1 = (cy + r_out + 1.0).ceil() as i32;
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let (fx, fy) = (px as f32 + 0.5, py as f32 + 0.5);
+            let (dx, dy) = (fx - cx, fy - cy);
+            let d = dx.hypot(dy);
+            if d > r_out + 1.0 || d < r_in - 1.0 {
+                continue;
+            }
+            let mut ang = dx.atan2(-dy).to_degrees();
+            if ang < 0.0 {
+                ang += 360.0;
+            }
+            let mut rel = ang - start;
+            let centre = sweep / 2.0;
+            while rel <= centre - 180.0 {
+                rel += 360.0;
+            }
+            while rel > centre + 180.0 {
+                rel -= 360.0;
+            }
+            let radial = (r_out + 0.5 - d).clamp(0.0, 1.0) * (d - r_in + 0.5).clamp(0.0, 1.0);
+            let arc_px = d * std::f32::consts::PI / 180.0;
+            let inside = ((rel * arc_px) + 0.5).clamp(0.0, 1.0) * (((sweep - rel) * arc_px) + 0.5).clamp(0.0, 1.0);
+            let mut cov = radial * inside;
+            for (qx, qy) in [(sx, sy), (ex, ey)] {
+                cov = cov.max((cap + 0.5 - (fx - qx).hypot(fy - qy)).clamp(0.0, 1.0));
+            }
+            if cov > 0.0 {
+                let t = (rel / sweep).clamp(0.0, 1.0);
+                p.layer.over(px, py, color(t), (alpha as f32 * cov).round() as u8);
+            }
+        }
+    }
+}
+
+/// Thin horizontal bar: track + gradient fill.
+fn hbar(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, frac: Option<f32>, colors: [Rgb; 2]) {
+    p.layer.fill_rrect((x, y, w, h), h / 2.0, &|_| WHITE, 22);
+    if let Some(f) = frac {
+        let f = f.clamp(0.0, 1.0);
+        if f > 0.0 {
+            let fw = (w * f).max(h);
+            p.layer.fill_rrect((x, y, fw, h), h / 2.0, &move |t| gradient_at(&colors, t * f.max(0.05)), 255);
+        }
+    }
+}
+
+/// Cover + title (scrolls) + artist + progress, in the box (x, y, w, h).
+fn now_playing_compact(p: &mut Painter, r: R, sc: &Scale, d: &Data, cover: Option<&Cover>, show_idle: bool) {
+    let k = sc.k;
+    let (x, y, w, h) = r;
+    let accent = cover.map_or(th().muted, |c| c.accent);
+    let Some(t) = d.track else {
+        if show_idle {
+            music_note(p, x + h * 0.45, y + h / 2.0, h * 0.32, th().dim);
+            p.text(x + h + 6.0 * k, y + h / 2.0 + sc.m / 2.0, "Nothing playing", sc.m, W::Regular, th().dim, 255);
+        }
+        return;
+    };
+    let cs = h;
+    match cover {
+        Some(c) => blit_cover(p, c, x, y, cs, 10.0 * k),
+        None => {
+            p.layer.fill_rrect((x, y, cs, cs), 10.0 * k, &|t| lerp_rgb((40, 42, 52), (24, 25, 32), t), 255);
+            music_note(p, x + cs / 2.0, y + cs / 2.0, cs * 0.34, th().muted);
+        }
+    }
+    let tx = x + cs + 14.0 * k;
+    let tw = x + w - tx;
+    let title = clean_title(&t.title);
+    title_line(p, tx, y + sc.m + 2.0 * k, tw, &title, sc.m, W::Medium, th().text);
+    let artist = ellipsize(p, &t.artist, sc.s, W::Regular, tw);
+    p.text(tx, y + sc.m + 2.0 * k + 10.0 * k + sc.s, &artist, sc.s, W::Regular, th().muted, 255);
+    if let Some(tl) = t.timeline.filter(|tl| tl.duration_ms > 0) {
+        let f = (tl.position_now_ms() as f32 / tl.duration_ms as f32).clamp(0.0, 1.0);
+        let by = y + h - 4.0 * k;
+        hbar(p, tx, by, tw, 4.0 * k, Some(f), [accent, lerp_rgb(accent, WHITE, 0.45)]);
+    }
+}
+
+fn clock_parts(now: &chrono::DateTime<Local>) -> (String, String, String) {
+    let t = now.format("%H:%M").to_string();
+    let wd = i18n::weekday(now).to_uppercase();
+    let date = crate::tiles::nice_case(&i18n::day_month_year(now));
+    (t, wd, date)
+}
+
+fn weather_text(d: &Data) -> Option<(WeatherIcon, String, String)> {
+    let wt = d.weather?;
+    let temp = format!("{:.0}\u{b0}", wt.temp_in(d.fahrenheit));
+    let cond = crate::tiles::nice_case(weather_icon::condition_name(wt.icon));
+    let city = wt.city.clone().unwrap_or_default();
+    let line = if city.is_empty() { cond } else { format!("{cond} \u{b7} {city}") };
+    Some((wt.icon, temp, line))
+}
+
+fn vram_text(g: &GpuAmdData) -> (String, String, Option<f32>) {
+    match (g.vram_used_mb, g.vram_total_mb) {
+        (Some(u), Some(t)) if t > 0 => (format!("{:.1}", u as f32 / 1024.0), format!("/{:.0} GB", t as f32 / 1024.0), Some(u as f32 / t as f32)),
+        (Some(u), _) => (format!("{:.1}", u as f32 / 1024.0), "GB".into(), None),
+        _ => ("--".into(), String::new(), None),
+    }
+}
+
+fn tval(v: Option<f32>, warn: f32, hot: f32) -> (String, Rgb) {
+    match v {
+        Some(t) => (format!("{t:.0}"), temp_color(t, warn, hot)),
+        None => ("--".into(), th().dim),
+    }
+}
+
+// --------------------------------------------------------------- COCKPIT
+//
+// Car instrument cluster: two 240° gauges (CPU left, GPU right) with ticks, the clock
+// and the rest of the readings in the middle, now playing in a pill at the bottom.
+
+fn gauge(p: &mut Painter, cx: f32, cy: f32, r: f32, sc: &Scale, colors: [Rgb; 2], label: &str, frac: Option<f32>, value: &str, name: &str, stats: [(&str, String, &str, Rgb); 3]) {
+    let k = sc.k;
+    let thick = 15.0 * k;
+    let (start, sweep) = (240.0f32, 240.0f32);
+    // ticks
+    let rt = r - thick - 12.0 * k;
+    for i in 0..=48 {
+        let a = (start + sweep * i as f32 / 48.0).to_radians();
+        let major = i % 12 == 0;
+        let len = if major { 12.0 * k } else { 6.0 * k };
+        let (s, c) = a.sin_cos();
+        capsule(p, (cx + s * rt, cy - c * rt), (cx + s * (rt - len), cy - c * (rt - len)), if major { 1.3 * k } else { 0.8 * k }, th().text, if major { 150 } else { 60 });
+    }
+    arc2(p, cx, cy, r, thick, start, sweep, &|_| WHITE, 22);
+    if let Some(f) = frac.map(|f| f.clamp(0.0, 1.0)) {
+        if f > 0.003 {
+            arc2(p, cx, cy, r, thick, start, sweep * f, &move |t| gradient_at(&colors, t), 255);
+            let a = (start + sweep * f).to_radians();
+            let rm = r - thick / 2.0;
+            let (ex, ey) = (cx + a.sin() * rm, cy - a.cos() * rm);
+            circle(p, ex, ey, thick * 1.05, colors[1], 70);
+            circle(p, ex, ey, thick * 0.42, WHITE, 255);
+        }
+    }
+    // label + value + name in the middle
+    let lw = spaced_width(p, label, sc.s, W::Medium, 2.0 * k);
+    spaced(p, cx - lw / 2.0, cy - 58.0 * k, label, sc.s, W::Medium, colors[1], 2.0 * k);
+    let vcap = 78.0 * k;
+    let vw = value_unit_width(p, value, if frac.is_some() { "%" } else { "" }, vcap, W::Light);
+    value_unit(p, cx - vw / 2.0, cy + vcap / 2.0 - 6.0 * k, value, if frac.is_some() { "%" } else { "" }, vcap, W::Light, th().text);
+    let name = ellipsize(p, name, sc.s, W::Regular, r * 1.3);
+    let nw = p.width(&name, sc.s, W::Regular);
+    p.text(cx - nw / 2.0, cy + vcap / 2.0 + 24.0 * k, &name, sc.s, W::Regular, th().dim, 255);
+    // three stats in the opening at the bottom
+    let open_w = 2.0 * r * (60.0f32).to_radians().sin() + 40.0 * k;
+    let cw = open_w / 3.0;
+    let top = cy + r * 0.5 + 4.0 * k;
+    for (i, (l, v, u, c)) in stats.iter().enumerate() {
+        let x = cx - open_w / 2.0 + i as f32 * cw;
+        let lw = spaced_width(p, l, sc.s * 0.9, W::Medium, 1.4 * k);
+        spaced(p, x + (cw - lw) / 2.0, top + sc.s, l, sc.s * 0.9, W::Medium, th().dim, 1.4 * k);
+        let cap = fit_vu(p, v, u, 28.0 * k, cw - 6.0 * k, W::Medium);
+        let vw = value_unit_width(p, v, u, cap, W::Medium);
+        value_unit(p, x + (cw - vw) / 2.0, top + sc.s + 8.0 * k + 28.0 * k, v, u, cap, W::Medium, *c);
+    }
+}
+
+fn paint_cockpit(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, cover: Option<&Cover>) {
+    let k = sc.k;
+    let r = 186.0 * k;
+    let cy = 22.0 * k + r;
+    let lcx = 34.0 * k + r;
+    let rcx = w - 34.0 * k - r;
+    if style() != Style::Flat {
+        for cx in [lcx, rcx] {
+            circle(p, cx, cy, r + 14.0 * k, th().panel, 255);
+        }
+    }
+    let (tv, tc) = tval(d.cpu_temp, 80.0, 90.0);
+    let pw = d.cpu_power.map_or("--".into(), |v| format!("{v:.0}"));
+    let clk = d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0));
+    gauge(p, lcx, cy, r, sc, th().cpu, "CPU", Some(d.cpu_pct / 100.0), &format!("{:.0}", d.cpu_pct), d.cpu_name,
+        [("TEMP", tv, "\u{b0}C", tc), ("POWER", pw, "W", th().text), ("CLOCK", clk, "GHz", th().text)]);
+    let g = d.gpu;
+    let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
+    let (ht, htc) = tval(g.temp_hotspot_c.map(|v| v as f32), 95.0, 105.0);
+    let gp = g.power_w.map_or("--".into(), |v| v.to_string());
+    let name = g.name.clone().unwrap_or_else(|| "GPU".into());
+    gauge(p, rcx, cy, r, sc, th().gpu, "GPU", d.gpu_pct.map(|v| v / 100.0), &d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}")), &name,
+        [("TEMP", gt, "\u{b0}C", gtc), ("HOTSPOT", ht, "\u{b0}C", htc), ("POWER", gp, "W", th().text)]);
+
+    // centre column
+    let x0 = lcx + r + 46.0 * k;
+    let x1 = rcx - r - 46.0 * k;
+    let cw = x1 - x0;
+    let mid = (x0 + x1) / 2.0;
+    let (t, wd, date) = clock_parts(now);
+    let tcap = 104.0 * k;
+    let tw = p.width(&t, tcap, W::Light);
+    p.text(mid - tw / 2.0, 22.0 * k + tcap, &t, tcap, W::Light, th().text, 255);
+    let line = match weather_text(d) {
+        Some((_, temp, cond)) => format!("{wd}  \u{b7}  {date}  \u{b7}  {temp} {cond}"),
+        None => format!("{wd}  \u{b7}  {date}"),
+    };
+    let line = ellipsize(p, &line, sc.s, W::Medium, cw);
+    let lw = p.width(&line, sc.s, W::Medium);
+    p.text(mid - lw / 2.0, 22.0 * k + tcap + 30.0 * k, &line, sc.s, W::Medium, th().muted, 255);
+
+    // chips row
+    let (vv, vu, vf) = vram_text(g);
+    let ram_f = if d.ram_total_mb > 0 { Some(d.ram_used_mb as f32 / d.ram_total_mb as f32) } else { None };
+    let (dn, du) = rate(d.net_kb.0);
+    let fps = g.fps.filter(|f| *f > 0);
+    let chips: [(&str, String, String, Option<f32>, [Rgb; 2], Rgb); 6] = [
+        ("RAM", gb(d.ram_used_mb), "GB".into(), ram_f, th().ram, th().text),
+        ("VRAM", vv, vu, vf, th().gpu, th().text),
+        ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), d.disk.map(|x| x.used_frac()), th().ssd, th().text),
+        ("GPU FAN", g.fan_rpm.map_or("--".into(), |v| v.max(0).to_string()), "RPM".into(), None, th().gpu, th().text),
+        ("DOWN", dn, du.into(), None, th().net, th().text),
+        ("FPS", fps.map_or("--".into(), |f| f.to_string()), fps.map_or(String::new(), |f| format!("{:.1} ms", 1000.0 / f as f32)), None, th().gpu, if fps.is_some() { th().fps } else { th().dim }),
+    ];
+    let n = chips.len() as f32;
+    let chw = cw / n;
+    let top = 196.0 * k;
+    for (i, (l, v, u, f, cols, vc)) in chips.iter().enumerate() {
+        let x = x0 + i as f32 * chw + 8.0 * k;
+        let iw = chw - 16.0 * k;
+        if i > 0 {
+            capsule(p, (x - 8.0 * k, top + 4.0 * k), (x - 8.0 * k, top + 66.0 * k), 0.5, WHITE, 34);
+        }
+        spaced(p, x, top + sc.s, l, sc.s, W::Medium, th().dim, 1.4 * k);
+        let cap = fit_vu(p, v, u, 30.0 * k, iw, W::Medium);
+        value_unit(p, x, top + sc.s + 10.0 * k + 30.0 * k, v, u, cap, W::Medium, *vc);
+        if f.is_some() {
+            hbar(p, x, top + sc.s + 10.0 * k + 30.0 * k + 12.0 * k, iw, 4.0 * k, *f, *cols);
+        }
+    }
+
+    // now playing pill
+    let ph = 74.0 * k;
+    let py = h - 16.0 * k - ph;
+    let pr = (x0, py, cw, ph);
+    if style() == Style::Flat {
+        capsule(p, (x0, py - 10.0 * k), (x1, py - 10.0 * k), 0.5, WHITE, 34);
+    } else {
+        p.layer.fill_rrect(pr, ph / 2.0, &|_| th().panel, 255);
+        p.layer.stroke_rrect(pr, ph / 2.0, 1.0, WHITE, 20);
+    }
+    let inner = (x0 + 14.0 * k, py + 12.0 * k, cw - 40.0 * k, ph - 24.0 * k);
+    now_playing_compact(p, inner, sc, d, cover, true);
+}
+
+// --------------------------------------------------------------- HORIZON
+//
+// Typographic rows: the clock and now playing on the left, then three columns
+// (processor, graphics, system), each a list of rows: label, value, a long thin bar.
+
+struct Row<'a> {
+    label: &'a str,
+    note: String,
+    value: String,
+    unit: String,
+    color: Rgb,
+    frac: Option<f32>,
+    bar: [Rgb; 2],
+}
+
+fn row<'a>(label: &'a str, note: String, value: String, unit: &str, color: Rgb, frac: Option<f32>, bar: [Rgb; 2]) -> Row<'a> {
+    Row { label, note, value, unit: unit.to_string(), color, frac, bar }
+}
+
+fn column(p: &mut Painter, r: R, sc: &Scale, accent: Rgb, title: &str, sub: &str, rows: &[Row]) {
+    let k = sc.k;
+    let (x, y, w, h) = r;
+    let hb = y + 24.0 * k;
+    circle(p, x + 5.0 * k, hb - sc.m * 0.4, 5.0 * k, accent, 255);
+    let tw = p.text(x + 18.0 * k, hb, title, sc.m * 1.2, W::Medium, th().text, 255);
+    let sub = ellipsize(p, sub, sc.s, W::Regular, w - tw - 30.0 * k);
+    let sw = p.width(&sub, sc.s, W::Regular);
+    p.text(x + w - sw, hb, &sub, sc.s, W::Regular, th().dim, 255);
+    let top = hb + 18.0 * k;
+    let rh = (y + h - top) / rows.len() as f32;
+    for (i, rw) in rows.iter().enumerate() {
+        let ry = top + i as f32 * rh;
+        let base = ry + rh - 22.0 * k;
+        let lw = spaced(p, x, base - sc.l + sc.s + 2.0 * k, rw.label, sc.s, W::Medium, th().dim, 1.6 * k);
+        if !rw.note.is_empty() {
+            let note = ellipsize(p, &rw.note, sc.s, W::Regular, w * 0.5 - lw);
+            p.text(x, base, &note, sc.s, W::Regular, th().muted, 255);
+        }
+        let cap = fit_vu(p, &rw.value, &rw.unit, sc.l, w * 0.55, W::Medium);
+        let vw = value_unit_width(p, &rw.value, &rw.unit, cap, W::Medium);
+        value_unit(p, x + w - vw, base, &rw.value, &rw.unit, cap, W::Medium, rw.color);
+        if rw.frac.is_some() {
+            hbar(p, x, base + 9.0 * k, w, 4.0 * k, rw.frac, rw.bar);
+        } else {
+            capsule(p, (x, base + 11.0 * k), (x + w, base + 11.0 * k), 0.5, WHITE, 30);
+        }
+    }
+}
+
+fn paint_horizon(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, hist: (&VecDeque<f32>, &VecDeque<f32>, &VecDeque<f32>), cover: Option<&Cover>) {
+    let k = sc.k;
+    let m = 22.0 * k;
+    // left block
+    let lw = 340.0 * k;
+    let (t, wd, date) = clock_parts(now);
+    spaced(p, m, m + sc.s, &wd, sc.s, W::Medium, th().muted, 2.2 * k);
+    p.text(m, m + sc.s + 12.0 * k + sc.m, &date, sc.m, W::Regular, th().text, 255);
+    let tcap = p.fit(&t, 110.0 * k, lw, W::Light);
+    let tb = m + sc.s + 12.0 * k + sc.m + 22.0 * k + tcap;
+    p.text(m - 4.0 * k, tb, &t, tcap, W::Light, th().text, 255);
+    if let Some((icon, temp, line)) = weather_text(d) {
+        let wy = tb + 22.0 * k;
+        weather_icon(p, m - 3.0 * k, wy, 40.0 * k, icon, !(6..19).contains(&now.hour()));
+        p.text(m + 46.0 * k, wy + 20.0 * k + sc.l / 2.0, &temp, sc.l, W::Medium, th().text, 255);
+        let tw = p.width(&temp, sc.l, W::Medium);
+        let line = ellipsize(p, &line, sc.s, W::Regular, lw - 56.0 * k - tw);
+        p.text(m + 56.0 * k + tw, wy + 20.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
+    }
+    let np = (m, h - m - 70.0 * k, lw, 70.0 * k);
+    capsule(p, (m, np.1 - 18.0 * k), (m + lw, np.1 - 18.0 * k), 0.5, WHITE, 34);
+    now_playing_compact(p, np, sc, d, cover, true);
+
+    // three columns
+    let gx = m + lw + 40.0 * k;
+    let gap = 40.0 * k;
+    let cw = (w - m - gx - 2.0 * gap) / 3.0;
+    let cols = [gx, gx + cw + gap, gx + 2.0 * (cw + gap)];
+    for cx in &cols[..] {
+        capsule(p, (cx - gap / 2.0, m), (cx - gap / 2.0, h - m), 0.5, WHITE, 30);
+    }
+    let r = |i: usize| (cols[i], m - 6.0 * k, cw, h - 2.0 * m + 6.0 * k);
+    let (tv, tc) = tval(d.cpu_temp, 80.0, 90.0);
+    let (uv, uu) = uptime_str(d.uptime_s);
+    let avg = if hist.0.is_empty() { d.cpu_pct } else { hist.0.iter().sum::<f32>() / hist.0.len() as f32 };
+    let cpu_rows = [
+        row("LOAD", format!("avg {avg:.0}%"), format!("{:.0}", d.cpu_pct), "%", th().text, Some(d.cpu_pct / 100.0), th().cpu),
+        row("TEMP", String::new(), tv, "\u{b0}C", tc, d.cpu_temp.map(|t| t / 100.0), th().cpu),
+        row("POWER", String::new(), d.cpu_power.map_or("--".into(), |v| format!("{v:.0}")), "W", th().text, d.cpu_power.map(|v| v / 200.0), th().cpu),
+        row("CLOCK", String::new(), d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0)), "GHz", th().text, d.cpu_mhz.map(|m| m as f32 / 5000.0), th().cpu),
+        match d.cpu_fan_rpm {
+            Some(rpm) => row("FAN", String::new(), rpm.to_string(), "RPM", th().text, Some(rpm as f32 / 2500.0), th().cpu),
+            None => row("UPTIME", String::new(), uv, &uu, th().text, None, th().cpu),
+        },
+    ];
+    column(p, r(0), sc, th().cpu[0], "Processor", d.cpu_name, &cpu_rows);
+    let g = d.gpu;
+    let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
+    let (vv, vu, vf) = vram_text(g);
+    let fps = g.fps.filter(|f| *f > 0);
+    let gpu_rows = [
+        row("LOAD", g.clock_mhz.filter(|c| *c > 0).map_or(String::new(), |c| format!("{c} MHz")), d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}")), "%", th().text, d.gpu_pct.map(|v| v / 100.0), th().gpu),
+        row("TEMP", g.temp_hotspot_c.map_or(String::new(), |t| format!("hotspot {t}\u{b0}")), gt, "\u{b0}C", gtc, g.temp_edge_c.map(|t| t as f32 / 100.0), th().gpu),
+        row("POWER", g.fan_rpm.map_or(String::new(), |f| format!("fan {} rpm", f.max(0))), g.power_w.map_or("--".into(), |v| v.to_string()), "W", th().text, g.power_w.map(|v| v as f32 / 350.0), th().gpu),
+        row("VRAM", String::new(), vv, &vu, th().text, vf, th().gpu),
+        row("FPS", fps.map_or(String::new(), |f| format!("{:.1} ms", 1000.0 / f as f32)), fps.map_or("--".into(), |f| f.to_string()), "", if fps.is_some() { th().fps } else { th().dim }, fps.map(|f| f as f32 / 240.0), [th().fps, th().fps]),
+    ];
+    let gname = g.name.clone().unwrap_or_else(|| "GPU".into());
+    column(p, r(1), sc, th().gpu[0], "Graphics", &gname, &gpu_rows);
+    let ram_f = if d.ram_total_mb > 0 { Some(d.ram_used_mb as f32 / d.ram_total_mb as f32) } else { None };
+    let peak = hist.2.iter().cloned().fold(1024.0f32, f32::max);
+    let (dn, du) = rate(d.net_kb.0);
+    let (un, uu2) = rate(d.net_kb.1);
+    let sys_rows = [
+        row("MEMORY", format!("of {} GB", gb(d.ram_total_mb)), gb(d.ram_used_mb), "GB", th().text, ram_f, th().ram),
+        row("STORAGE", d.disk.map_or(String::new(), |x| format!("{:.0}/{:.0} GB", x.used_gb, x.total_gb)), d.disk.map_or("--".into(), |x| format!("{:.0}", x.used_frac() * 100.0)), "%", th().text, d.disk.map(|x| x.used_frac()), th().ssd),
+        row("SSD TEMP", format!("R {:.1}  W {:.1} MB/s", d.disk_rate.0, d.disk_rate.1), d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C", d.disk.and_then(|x| x.temp_c).map_or(th().dim, |t| temp_color(t as f32, 60.0, 70.0)), d.disk.and_then(|x| x.temp_c).map(|t| t as f32 / 80.0), th().ssd),
+        row("DOWNLOAD", String::new(), dn, du, th().text, Some(d.net_kb.0 as f32 / peak), th().net),
+        row("UPLOAD", String::new(), un, uu2, th().text, Some(d.net_kb.1 as f32 / peak), [th().up, th().up]),
+    ];
+    column(p, r(2), sc, th().ram[0], "System", "", &sys_rows);
+}
+
+// ------------------------------------------------------------------ FOCUS
+//
+// A few huge numbers: the temperatures of CPU and GPU, memory use and the clock,
+// each with a short row of details and a soft load graph underneath.
+
+fn focus_section(p: &mut Painter, r: R, sc: &Scale, colors: [Rgb; 2], label: &str, hero: &str, hero_unit: &str, hero_color: Rgb, side: &str, stats: &[(&str, String, String, Rgb)], hist: Option<(&VecDeque<f32>, f32)>) {
+    let k = sc.k;
+    let (x, y, w, h) = r;
+    circle(p, x + 5.0 * k, y + sc.s * 0.5, 5.0 * k, colors[0], 255);
+    spaced(p, x + 18.0 * k, y + sc.s, label, sc.s, W::Medium, th().muted, 2.0 * k);
+    let hcap = 136.0 * k;
+    let hb = y + sc.s + 26.0 * k + hcap;
+    let cap = fit_vu(p, hero, hero_unit, hcap, w - 10.0 * k, W::Light);
+    let hw = p.text(x - 6.0 * k, hb, hero, cap, W::Light, hero_color, 255);
+    if !hero_unit.is_empty() {
+        p.text(x - 6.0 * k + hw + 4.0 * k, hb - cap + sc.l, hero_unit, sc.l, W::Light, th().muted, 255);
+    }
+    if !side.is_empty() {
+        let sw = p.width(side, sc.m, W::Regular);
+        p.text(x + w - sw, hb, side, sc.m, W::Regular, th().muted, 255);
+    }
+    // stats row
+    let top = hb + 24.0 * k;
+    let n = stats.len().max(1) as f32;
+    let cw = w / n;
+    for (i, (l, v, u, c)) in stats.iter().enumerate() {
+        let sx = x + i as f32 * cw;
+        spaced(p, sx, top + sc.s, l, sc.s, W::Medium, th().dim, 1.5 * k);
+        let cap = fit_vu(p, v, u, 30.0 * k, cw - 10.0 * k, W::Medium);
+        value_unit(p, sx, top + sc.s + 9.0 * k + 30.0 * k, v, u, cap, W::Medium, *c);
+    }
+    if let Some((hq, max)) = hist {
+        let gy = top + sc.s + 9.0 * k + 30.0 * k + 20.0 * k;
+        let gh = y + h - gy;
+        if gh > 16.0 * k {
+            sparkline(p, (x, gy, w, gh), hq, max, colors, k);
+        }
+    }
+}
+
+fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chrono::DateTime<Local>, hist: (&VecDeque<f32>, &VecDeque<f32>, &VecDeque<f32>), cover: Option<&Cover>) {
+    let k = sc.k;
+    let m = 24.0 * k;
+    let gap = 44.0 * k;
+    let weights = [450.0f32, 470.0, 380.0, 470.0];
+    let avail = w - 2.0 * m - gap * 3.0;
+    let sum: f32 = weights.iter().sum();
+    let mut xs = Vec::new();
+    let mut x = m;
+    for wt in weights {
+        let cw = avail * wt / sum;
+        xs.push((x, cw));
+        x += cw + gap;
+    }
+    for (x, _) in xs.iter().skip(1) {
+        capsule(p, (x - gap / 2.0, m), (x - gap / 2.0, h - m), 0.5, WHITE, 34);
+    }
+    let r = |i: usize| (xs[i].0, m, xs[i].1, h - 2.0 * m);
+    // CPU
+    let (tv, tc) = tval(d.cpu_temp, 80.0, 90.0);
+    let (uv, uu) = uptime_str(d.uptime_s);
+    let cpu_stats = [
+        ("LOAD", format!("{:.0}", d.cpu_pct), "%".to_string(), th().text),
+        ("POWER", d.cpu_power.map_or("--".into(), |v| format!("{v:.0}")), "W".into(), th().text),
+        ("CLOCK", d.cpu_mhz.map_or("--".into(), |m| format!("{:.2}", m as f32 / 1000.0)), "GHz".into(), th().text),
+        match d.cpu_fan_rpm {
+            Some(rpm) => ("FAN", rpm.to_string(), "RPM".into(), th().text),
+            None => ("UP", uv, uu, th().text),
+        },
+    ];
+    focus_section(p, r(0), sc, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
+    // GPU
+    let g = d.gpu;
+    let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
+    let fps = g.fps.filter(|f| *f > 0);
+    let side = g.temp_hotspot_c.map_or(String::new(), |t| format!("hotspot {t}\u{b0}"));
+    let gpu_stats = [
+        ("LOAD", d.gpu_pct.map_or("--".into(), |v| format!("{v:.0}")), "%".to_string(), th().text),
+        ("POWER", g.power_w.map_or("--".into(), |v| v.to_string()), "W".into(), th().text),
+        ("FAN", g.fan_rpm.map_or("--".into(), |v| v.max(0).to_string()), "RPM".into(), th().text),
+        match fps {
+            Some(f) => ("FPS", f.to_string(), format!("{:.1}ms", 1000.0 / f as f32), th().fps),
+            None => ("VRAM", vram_text(g).0, "GB".into(), th().text),
+        },
+    ];
+    focus_section(p, r(1), sc, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
+    // memory
+    let ram_pct = if d.ram_total_mb > 0 { d.ram_used_mb as f32 * 100.0 / d.ram_total_mb as f32 } else { 0.0 };
+    let (dn, du) = rate(d.net_kb.0);
+    let mem_stats = [
+        ("USED", gb(d.ram_used_mb), "GB".to_string(), th().text),
+        ("SSD", d.disk.and_then(|x| x.temp_c).map_or("--".into(), |t| t.to_string()), "\u{b0}C".into(), th().text),
+        ("NET", dn, du.to_string(), th().text),
+    ];
+    let side = format!("of {} GB", gb(d.ram_total_mb));
+    focus_section(p, r(2), sc, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
+    // time + weather + now playing
+    let (x, y, sw, sh) = r(3);
+    let (t, wd, date) = clock_parts(now);
+    spaced(p, x, y + sc.s, &format!("{wd}  \u{b7}  {}", date.to_uppercase()), sc.s, W::Medium, th().muted, 2.0 * k);
+    let hcap = 136.0 * k;
+    let cap = p.fit(&t, hcap, sw, W::Light);
+    let hb = y + sc.s + 26.0 * k + hcap;
+    p.text(x - 6.0 * k, hb, &t, cap, W::Light, th().text, 255);
+    if let Some((icon, temp, line)) = weather_text(d) {
+        let wy = hb + 22.0 * k;
+        weather_icon(p, x - 3.0 * k, wy, 36.0 * k, icon, !(6..19).contains(&now.hour()));
+        let tw = p.text(x + 42.0 * k, wy + 18.0 * k + sc.m / 2.0, &temp, sc.m * 1.3, W::Medium, th().text, 255);
+        let line = ellipsize(p, &line, sc.s, W::Regular, sw - 60.0 * k - tw);
+        p.text(x + 52.0 * k + tw, wy + 18.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
+    }
+    now_playing_compact(p, (x, y + sh - 64.0 * k, sw, 64.0 * k), sc, d, cover, true);
 }

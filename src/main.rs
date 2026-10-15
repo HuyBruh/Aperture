@@ -1931,6 +1931,12 @@ fn main() -> anyhow::Result<()> {
             (true, tiles::BgMode::Image) => target_fps.max(config.active_fps),
             _ => target_fps,
         };
+        // The pro screen scrolls a long song title: smooth frames only while it moves.
+        let pro_anim = is_idle
+            && active_def.is_some_and(|d| d.name == "pro")
+            && !(gaming_now && ui_show.dashboard)
+            && pro_screen.animating();
+        let target_fps = if pro_anim { target_fps.max(20.0) } else { target_fps };
         let target_frame_time = Duration::from_secs_f32(1.0 / target_fps);
 
         let bars = compute_bars(&samples, &hann, fft.as_ref(), &bar_bins, &mut running_max);
