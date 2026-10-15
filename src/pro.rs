@@ -1679,7 +1679,7 @@ fn paint_cockpit(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &ch
     ];
     let n = chips.len() as f32;
     let chw = cw / n;
-    let top = 196.0 * k;
+    let top = 214.0 * k;
     for (i, (l, v, u, f, cols, vc)) in chips.iter().enumerate() {
         let x = x0 + i as f32 * chw + 8.0 * k;
         let iw = chw - 16.0 * k;
@@ -1695,8 +1695,8 @@ fn paint_cockpit(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &ch
     }
 
     // now playing pill
-    let ph = 74.0 * k;
-    let py = h - 16.0 * k - ph;
+    let ph = 84.0 * k;
+    let py = h - 14.0 * k - ph;
     let pr = (x0, py, cw, ph);
     if style() == Style::Flat {
         capsule(p, (x0, py - 10.0 * k), (x1, py - 10.0 * k), 0.5, WHITE, 34);
@@ -1940,6 +1940,22 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         let tw = p.text(x + 42.0 * k, wy + 18.0 * k + sc.m / 2.0, &temp, sc.m * 1.3, W::Medium, th().text, 255);
         let line = ellipsize(p, &line, sc.s, W::Regular, sw - 60.0 * k - tw);
         p.text(x + 52.0 * k + tw, wy + 18.0 * k + sc.s / 2.0, &line, sc.s, W::Regular, th().muted, 255);
+    }
+    // the next three days
+    if let Some(wt) = d.weather {
+        let days: Vec<_> = wt.forecast.iter().skip(1).take(3).collect();
+        let fy = hb + 92.0 * k;
+        let cw = sw / 3.0;
+        for (i, f) in days.iter().enumerate() {
+            let cx = x + i as f32 * cw;
+            let dn = i18n::weekday_short(f.weekday).to_uppercase();
+            let dw = spaced(p, cx, fy, &dn, sc.s, W::Medium, th().dim, 1.4 * k);
+            weather_icon(p, cx + dw + 6.0 * k, fy - sc.s / 2.0 - 12.0 * k, 24.0 * k, f.icon, false);
+            let hi = format!("{:.0}\u{b0}", f.temp_max_in(d.fahrenheit));
+            let lo = format!("{:.0}\u{b0}", f.temp_min_in(d.fahrenheit));
+            let hw = p.text(cx + dw + 36.0 * k, fy, &hi, sc.m, W::Medium, th().text, 255);
+            p.text(cx + dw + 40.0 * k + hw, fy, &lo, sc.s, W::Regular, th().dim, 255);
+        }
     }
     now_playing_compact(p, (x, y + sh - 64.0 * k, sw, 64.0 * k), sc, d, cover, true);
 }
