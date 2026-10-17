@@ -456,7 +456,7 @@ impl ProScreen {
         }
         let mut p = Painter { layer: &mut self.osd, font: FontStyle::Smooth };
         let bg = lerp_rgb(th().bg, WHITE, 0.07);
-        p.layer.fill_rrect((0.0, 0.0, w, h), h / 2.0, &move |_| bg, al(250.0));
+        p.layer.fill_rrect((0.0, 0.0, w, h), h / 2.0, &move |_| bg, al(255.0));
         p.layer.stroke_rrect((0.0, 0.0, w, h), h / 2.0, 1.0, WHITE, al(40.0));
         let colors = th().gpu;
         let ic = if muted { th().dim } else { th().text };
