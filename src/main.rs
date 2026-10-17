@@ -2386,8 +2386,8 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
             }
         }
         let track = Arc::new(media::TrackInfo {
-            title: "Song title that is quite long".into(),
-            artist: "Artist name".into(),
+            title: "Lạc Trôi — Đừng làm trái tim anh đau, Ừ Thì ƯỚC MƠ".into(),
+            artist: "Sơn Tùng M-TP".into(),
             album: "Album".into(),
             cover: Some(Arc::new(media::CoverArt { width: n, height: n, rgb })),
             timeline: Some(media::Timeline { position_ms: 83_000, duration_ms: 215_000, playing: true, sampled_at: Instant::now() }),
