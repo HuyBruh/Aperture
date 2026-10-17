@@ -12,7 +12,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # needed) for the PNG screenshot files in src/png_save.rs.
 flate2 = "1"
 # Smooth (anti-aliased) text for the `tiles` layout (`tiles_font = smooth`): pure-Rust
-# TrueType rasterizer; the embedded font is Poppins (SIL OFL, see assets/OFL.txt).
+# TrueType rasterizer; the embedded font is Chakra Petch (SIL OFL, see assets/OFL.txt).
 fontdue = { version = "0.9", default-features = false }
 jpeg-encoder = "0.5"
 # Background decoding (JPEG/PNG/BMP/GIF) for the `background` option; videos

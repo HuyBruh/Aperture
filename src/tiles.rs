@@ -4,7 +4,7 @@
 //!
 //! * `layout = tiles` shows it; `tiles = ...` chooses which tiles, in which order and
 //!   rows (`|` starts a new row), and whether a tile uses a bar or a ring.
-//! * `tiles_font = smooth | pixel` picks anti-aliased text (Poppins, see
+//! * `tiles_font = smooth | pixel` picks anti-aliased text (Chakra Petch, see
 //!   `smooth_font.rs`) or the pixel font used by the rest of the program.
 //! * `tiles_bg` chooses what is behind the tiles; `tiles_bar_color` and
 //!   `tile_<name>_color` the colors of the bars and rings.

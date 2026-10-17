@@ -559,7 +559,7 @@ Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
 - `src/media.rs` + `src/music_screen.rs` — now-playing info (Windows media controls / `playerctl`) and the Spotify-style music screen.
 - `src/pixel_game.rs` — the self-playing pixel-art platformer under the clock.
 - `src/effect.rs` — the animated backgrounds (plasma, aurora, lava, waves, matrix, rain, aquarium and their light variants).
-- `src/tiles.rs` + `src/smooth_font.rs` + `assets/` — the tiles layout and its anti-aliased text (embedded Poppins font, SIL OFL: see `assets/OFL.txt`).
+- `src/tiles.rs` + `src/smooth_font.rs` + `assets/` — the tiles layout and its anti-aliased text (embedded Chakra Petch font, SIL OFL: see `assets/OFL.txt`).
 - `src/bin/config_editor.rs` — the settings editor window (`trofeo_config`, built with egui).
 - `src/schema.rs` — the list of every setting the editor shows (names, ranges, defaults, texts in English and Italian); tests check it against the real parser, so the editor can only write what the program accepts.
 - `src/conf_edit.rs` — line-by-line editing of `trofeo.conf` that keeps comments and untouched lines.
@@ -605,8 +605,8 @@ display is running.
 - USB protocol reverse-engineering:
   [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux)
   by Lexonight1.
-- Smooth text in the tiles layout uses a subset of the [Poppins](https://github.com/itfoundry/Poppins) font
-  (© The Poppins Project Authors, SIL Open Font License 1.1 — `assets/OFL.txt`).
+- Smooth text in the tiles layout uses a subset of the [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch) font
+  (© The Chakra Petch Project Authors, SIL Open Font License 1.1 — `assets/OFL.txt`).
 - The settings editor is built with [egui / eframe](https://github.com/emilk/egui)
   (MIT or Apache-2.0) and, on Windows, [rfd](https://github.com/PolyMeilex/rfd) (MIT) for the file dialogs.
 - See **[NOTICE.md](./NOTICE.md)** for what has changed in this fork.

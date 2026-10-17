@@ -1,7 +1,8 @@
 //! Smooth (anti-aliased) text for the `tiles` layout.
 //!
-//! The font is Poppins (SIL Open Font License, see `assets/OFL.txt`), reduced to
-//! the Latin characters (three weights, ~15 KB each) and embedded in the program.
+//! The font is Chakra Petch (SIL Open Font License, see `assets/OFL.txt`), a squared,
+//! techno/gaming typeface, reduced to Latin + Latin Extended + Vietnamese (three weights,
+//! ~39 KB each) and embedded in the program.
 //! Each glyph is rasterized once per size and kept in a small cache, so drawing a
 //! frame only copies coverage values — the same cost as the pixel font.
 //!
@@ -22,12 +23,12 @@ pub enum Weight {
     Medium,
 }
 
-static LIGHT: &[u8] = include_bytes!("../assets/Poppins-Light-subset.ttf");
-static REGULAR: &[u8] = include_bytes!("../assets/Poppins-Regular-subset.ttf");
-static MEDIUM: &[u8] = include_bytes!("../assets/Poppins-Medium-subset.ttf");
+static LIGHT: &[u8] = include_bytes!("../assets/ChakraPetch-Light-subset.ttf");
+static REGULAR: &[u8] = include_bytes!("../assets/ChakraPetch-Regular-subset.ttf");
+static MEDIUM: &[u8] = include_bytes!("../assets/ChakraPetch-Medium-subset.ttf");
 
-/// Height of the digits, as a fraction of the em size (Poppins: digits ~0.725, capitals 0.698).
-const CAP_RATIO: f32 = 0.725;
+/// Height of the digits, as a fraction of the em size (Chakra Petch: digits and capitals 0.700).
+const CAP_RATIO: f32 = 0.700;
 
 struct Fonts {
     light: Font,
@@ -199,7 +200,7 @@ mod tests {
 
     #[test]
     fn accents_degree_and_unknown_characters_draw_something() {
-        for s in ["°C", "à è é ì ò ù", "€", "漢"] {
+        for s in ["°C", "à è é ì ò ù", "€", "Lạc Trôi — Sơn Tùng ƯỚC MƠ Đừng ẩn", "漢"] {
             let mut n = 0;
             draw_with(s, 0.0, 40.0, 30.0, Weight::Medium, |_, _, _| n += 1);
             assert!(n > 0, "{s:?} drew nothing");
