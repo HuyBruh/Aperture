@@ -1931,12 +1931,18 @@ fn main() -> anyhow::Result<()> {
             (true, tiles::BgMode::Image) => target_fps.max(config.active_fps),
             _ => target_fps,
         };
+        // Master volume every frame (a cheap COM read): a change opens the pro screen's pop-up.
+        if let Some(audio_ep) = audio_endpoint.as_ref() {
+            if let Ok(v) = audio_ep.sample() {
+                latest_volume = Some(v);
+                pro_screen.note_volume(Some(v));
+            }
+        }
         // The pro screen scrolls a long song title: smooth frames only while it moves.
-        let pro_anim = is_idle
-            && active_def.is_some_and(|d| d.name == "pro")
-            && !(gaming_now && ui_show.dashboard)
-            && pro_screen.animating();
+        let pro_on = is_idle && active_def.is_some_and(|d| d.name == "pro") && !(gaming_now && ui_show.dashboard);
+        let pro_anim = pro_on && pro_screen.animating();
         let target_fps = if pro_anim { target_fps.max(20.0) } else { target_fps };
+        let target_fps = if pro_on && pro_screen.osd_active() { target_fps.max(30.0) } else { target_fps };
         let target_frame_time = Duration::from_secs_f32(1.0 / target_fps);
 
         let bars = compute_bars(&samples, &hann, fft.as_ref(), &bar_bins, &mut running_max);
@@ -2416,6 +2422,13 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
         };
         let mut screen = pro::ProScreen::new();
         screen.seed_demo_history();
+        // TROFEO_PREVIEW_VOLUME=62 (or "mute") draws the volume pop-up too.
+        if let Ok(v) = std::env::var("TROFEO_PREVIEW_VOLUME") {
+            let muted = v.eq_ignore_ascii_case("mute");
+            screen.note_volume(Some((10.0, false)));
+            screen.note_volume(Some((v.parse().unwrap_or(40.0), muted)));
+            std::thread::sleep(Duration::from_millis(400));
+        }
         screen.draw(&mut fb, area, &data);
     }
     let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };

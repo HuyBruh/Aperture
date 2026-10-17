@@ -276,7 +276,14 @@ pub struct ProScreen {
     marquees: Vec<MarqueeSpec>,
     marquee_since: Instant,
     marquee_k: f32,
+    /// Last master volume (percent, muted) and since when the volume pop-up shows.
+    vol: Option<(f32, bool)>,
+    vol_since: Option<Instant>,
+    osd: Layer,
 }
+
+/// How long the volume pop-up stays on screen after the last change.
+const OSD_SECS: f32 = 1.8;
 
 impl ProScreen {
     pub fn new() -> Self {
@@ -292,6 +299,9 @@ impl ProScreen {
             marquees: Vec::new(),
             marquee_since: Instant::now(),
             marquee_k: 1.0,
+            vol: None,
+            vol_since: None,
+            osd: Layer::new(1, 1),
         }
     }
 
@@ -406,6 +416,96 @@ impl ProScreen {
         for m in &self.marquees {
             paint_marquee(fb, area.0, area.1, m, self.marquee_k, t);
         }
+        self.paint_volume_osd(fb, area);
+    }
+
+    /// Feed the current master volume; a change (not the first reading) opens the pop-up.
+    pub fn note_volume(&mut self, v: Option<(f32, bool)>) {
+        if let Some(v) = v {
+            if let Some(old) = self.vol {
+                if (old.0 - v.0).abs() > 0.3 || old.1 != v.1 {
+                    self.vol_since = Some(Instant::now());
+                }
+            }
+            self.vol = Some(v);
+        }
+    }
+
+    /// True while the volume pop-up is on screen (the main loop then draws smooth frames).
+    pub fn osd_active(&self) -> bool {
+        self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS)
+    }
+
+    /// A clean pill in the middle of the screen: speaker, level bar, percent.
+    fn paint_volume_osd(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32)) {
+        let (Some(since), Some((level, muted))) = (self.vol_since, self.vol) else { return };
+        let t = since.elapsed().as_secs_f32();
+        if t >= OSD_SECS {
+            return;
+        }
+        let a = (t / 0.12).min(1.0) * ((OSD_SECS - t) / 0.35).min(1.0);
+        let al = |x: f32| (x * a).round().clamp(0.0, 255.0) as u8;
+        let (aw, ah) = (area.2 as f32, area.3 as f32);
+        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0);
+        let sc = Scale::new(k);
+        let (w, h) = ((640.0 * k).round(), (112.0 * k).round());
+        if self.osd.w != w as usize || self.osd.h != h as usize {
+            self.osd = Layer::new(w as u32, h as u32);
+        } else {
+            self.osd.clear();
+        }
+        let mut p = Painter { layer: &mut self.osd, font: FontStyle::Smooth };
+        let bg = lerp_rgb(th().bg, WHITE, 0.07);
+        p.layer.fill_rrect((0.0, 0.0, w, h), h / 2.0, &move |_| bg, al(250.0));
+        p.layer.stroke_rrect((0.0, 0.0, w, h), h / 2.0, 1.0, WHITE, al(40.0));
+        let colors = th().gpu;
+        let ic = if muted { th().dim } else { th().text };
+        // speaker: body + cone
+        let (cx, cy) = (h * 0.5 + 4.0 * k, h / 2.0);
+        p.layer.fill_rrect((cx - 24.0 * k, cy - 9.0 * k, 11.0 * k, 18.0 * k), 2.5 * k, &move |_| ic, al(255.0));
+        let steps = (16.0 * k) as i32;
+        for i in 0..=steps {
+            let f = i as f32 / steps as f32;
+            let x = cx - 13.0 * k + f * 14.0 * k;
+            let hh = 9.0 * k + f * 11.0 * k;
+            capsule(&mut p, (x, cy - hh), (x, cy + hh), 1.0 * k, ic, al(255.0));
+        }
+        if muted {
+            let (x0, d) = (cx + 9.0 * k, 9.0 * k);
+            capsule(&mut p, (x0, cy - d), (x0 + 2.0 * d, cy + d), 2.2 * k, HOT, al(255.0));
+            capsule(&mut p, (x0, cy + d), (x0 + 2.0 * d, cy - d), 2.2 * k, HOT, al(255.0));
+        } else {
+            let waves = if level <= 0.5 { 0 } else if level < 34.0 { 1 } else if level < 67.0 { 2 } else { 3 };
+            for i in 0..3 {
+                let r = 12.0 * k + i as f32 * 8.0 * k;
+                let on = i < waves;
+                arc2(&mut p, cx + 2.0 * k, cy, r, 3.0 * k, 52.0, 76.0, &move |_| if on { ic } else { WHITE }, al(if on { 255.0 } else { 30.0 }));
+            }
+        }
+        // level bar
+        let bx = h + 30.0 * k;
+        let bw = w - bx - 120.0 * k;
+        let bh = 8.0 * k;
+        let by = cy - bh / 2.0;
+        p.layer.fill_rrect((bx, by, bw, bh), bh / 2.0, &|_| WHITE, al(30.0));
+        let f = (level / 100.0).clamp(0.0, 1.0);
+        if f > 0.0 {
+            let fw = (bw * f).max(bh);
+            let c = if muted { [th().dim, th().dim] } else { colors };
+            p.layer.fill_rrect((bx, by, fw, bh), bh / 2.0, &move |t| lerp_rgb(c[0], c[1], t), al(255.0));
+            circle(&mut p, bx + fw - bh / 2.0, cy, bh * 0.95, if muted { th().dim } else { WHITE }, al(255.0));
+        }
+        // percent
+        let txt = format!("{:.0}", level.round());
+        let cap = sc.l;
+        let tw = p.width(&txt, cap, W::Medium);
+        let uw = p.width("%", cap * 0.5, W::Regular);
+        let tx = w - 34.0 * k - tw - uw - 4.0 * k;
+        p.text(tx, cy + cap / 2.0, &txt, cap, W::Medium, if muted { th().dim } else { th().text }, al(255.0));
+        p.text(tx + tw + 4.0 * k, cy + cap / 2.0, "%", cap * 0.5, W::Regular, th().muted, al(255.0));
+        let ox = area.0 + ((aw - w) / 2.0).max(0.0) as u32;
+        let oy = area.1 + ((ah - h) / 2.0).max(0.0) as u32;
+        self.osd.composite_onto(fb, ox, oy);
     }
 
     /// True while a title is scrolling (the main loop then raises the frame rate).
