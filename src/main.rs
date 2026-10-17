@@ -2429,6 +2429,9 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
             screen.note_volume(Some((v.parse().unwrap_or(40.0), muted)));
             std::thread::sleep(Duration::from_millis(400));
         }
+        if std::env::var("TROFEO_PREVIEW_SONG").is_ok() {
+            screen.demo_song_popup();
+        }
         screen.draw(&mut fb, area, &data);
     }
     let target: &mut Framebuffer = if composite { &mut ui } else { &mut fb };

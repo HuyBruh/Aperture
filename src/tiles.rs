@@ -480,6 +480,14 @@ impl Layer {
         d[3] = (a + (d[3] as u32 * inv + 127) / 255).min(255) as u8;
     }
 
+    /// Multiplies the whole layer's opacity by `f` (0-1); pixels are premultiplied.
+    pub(crate) fn scale_alpha(&mut self, f: f32) {
+        let m = (f.clamp(0.0, 1.0) * 256.0) as u32;
+        for v in self.px.iter_mut() {
+            *v = ((*v as u32 * m) >> 8) as u8;
+        }
+    }
+
     /// Lays the layer over `fb` with its top-left corner at (ox, oy).
     pub fn composite_onto(&self, fb: &mut Framebuffer, ox: u32, oy: u32) {
         let fw = fb.width() as usize;

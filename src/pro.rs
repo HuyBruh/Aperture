@@ -134,11 +134,15 @@ pub struct Settings {
     pub style: Style,
     /// Minutes between two themes when several are listed (0 = only the first).
     pub interval_min: u32,
+    /// Accent colors taken from the cover of the song playing.
+    pub cover_color: bool,
+    /// Pop-up with the cover when a new song starts.
+    pub song_popup: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30 }
+        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true }
     }
 }
 
@@ -195,6 +199,19 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
             anyhow::bail!("pro_theme_interval: 0-1440 minutes");
         }
         s.interval_min = v;
+    }
+    let flag = |key: &str, v: &str| -> anyhow::Result<bool> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "true" | "on" | "yes" | "1" => Ok(true),
+            "false" | "off" | "no" | "0" => Ok(false),
+            _ => anyhow::bail!("{key}: '{v}' not valid (true | false)"),
+        }
+    };
+    if let Some(v) = file.get("pro_cover_color") {
+        s.cover_color = flag("pro_cover_color", v)?;
+    }
+    if let Some(v) = file.get("pro_song_popup") {
+        s.song_popup = flag("pro_song_popup", v)?;
     }
     Ok(s)
 }
@@ -261,6 +278,8 @@ struct Cover {
     size: u32,
     rgb: Vec<u8>,
     accent: Rgb,
+    /// Three distinct colors of the cover (for `pro_cover_color`).
+    palette: [Rgb; 3],
 }
 
 pub struct ProScreen {
@@ -280,7 +299,14 @@ pub struct ProScreen {
     vol: Option<(f32, bool)>,
     vol_since: Option<Instant>,
     osd: Layer,
+    /// Last song seen (title, artist), whether the first frame passed, and since when its pop-up shows.
+    last_song: Option<(String, String)>,
+    song_init: bool,
+    song_since: Option<Instant>,
 }
+
+/// How long the new-song pop-up stays on screen.
+const SONG_SECS: f32 = 3.2;
 
 /// How long the volume pop-up stays on screen after the last change.
 const OSD_SECS: f32 = 1.8;
@@ -302,6 +328,9 @@ impl ProScreen {
             vol: None,
             vol_since: None,
             osd: Layer::new(1, 1),
+            last_song: None,
+            song_init: false,
+            song_since: None,
         }
     }
 
@@ -343,22 +372,42 @@ impl ProScreen {
         let size = 160u32;
         let rgb = scale_square(&cover.rgb, cover.width, cover.height, size);
         let accent = cover_accent(&rgb);
-        self.cover = Some(Cover { key, size, rgb, accent });
+        let palette = cover_palette(&rgb, accent);
+        self.cover = Some(Cover { key, size, rgb, accent, palette });
     }
 
     /// Paints the screen on `fb`; `area` = the part of `fb` the interface may use.
     pub fn draw(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32), d: &Data) {
         let settings = opts().pro;
-        let (theme, layout) = pick(&settings);
-        CURRENT.with(|c| c.set((theme, settings.style)));
-        fb.clear(theme.bg.0, theme.bg.1, theme.bg.2);
+        let (mut theme, layout) = pick(&settings);
         self.push_history(d);
         self.update_cover(d);
+        if settings.cover_color {
+            if let Some(c) = self.cover.as_ref() {
+                let pair = |c: Rgb| [c, lerp_rgb(c, WHITE, 0.45)];
+                theme.cpu = pair(c.palette[0]);
+                theme.gpu = pair(c.palette[1]);
+                theme.ram = pair(c.palette[2]);
+                theme.ssd = pair(lerp_rgb(c.palette[0], c.palette[2], 0.5));
+                theme.net = pair(c.palette[1]);
+            }
+        }
+        CURRENT.with(|c| c.set((theme, settings.style)));
+        fb.clear(theme.bg.0, theme.bg.1, theme.bg.2);
+        // a new song opens its pop-up (not at start-up, not when the same song resumes)
+        let key = d.track.map(|t| (t.title.clone(), t.artist.clone()));
+        if let Some(k) = key {
+            if self.song_init && self.last_song.as_ref() != Some(&k) && settings.song_popup {
+                self.song_since = Some(Instant::now());
+            }
+            self.last_song = Some(k);
+        }
+        self.song_init = true;
         let now = Local::now();
         let progress = d.track.and_then(|t| t.timeline).map(|tl| (tl.position_now_ms() / 1000, tl.duration_ms / 1000));
         let sig = format!(
-            "{}{:?}{:?}|{area:?}|{:?}|{}|{}|{:.0}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:.1}{:.1}|{:.0}{:.0}|{:?}|{}|{:?}|{:?}|{}",
-            theme.name,
+            "{:?}{:?}{:?}|{area:?}|{:?}|{}|{}|{:.0}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:.1}{:.1}|{:.0}{:.0}|{:?}|{}|{:?}|{:?}|{}",
+            theme,
             settings.style,
             layout,
             d.cpu_fan_rpm,
@@ -416,7 +465,74 @@ impl ProScreen {
         for m in &self.marquees {
             paint_marquee(fb, area.0, area.1, m, self.marquee_k, t);
         }
-        self.paint_volume_osd(fb, area);
+        if self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS) {
+            self.paint_volume_osd(fb, area);
+        } else {
+            self.paint_song_osd(fb, area, d);
+        }
+    }
+
+    /// Preview only: show the new-song pop-up as if the song just changed.
+    pub fn demo_song_popup(&mut self) {
+        self.song_since = Instant::now().checked_sub(std::time::Duration::from_millis(600));
+    }
+
+    fn song_osd_active(&self) -> bool {
+        self.song_since.is_some_and(|t| t.elapsed().as_secs_f32() < SONG_SECS)
+    }
+
+    /// Cover + "now playing" + title + artist, centered, fading in and out.
+    fn paint_song_osd(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32), d: &Data) {
+        let (Some(since), Some(tr)) = (self.song_since, d.track) else { return };
+        let t = since.elapsed().as_secs_f32();
+        if t >= SONG_SECS {
+            return;
+        }
+        let a = (t / 0.15).min(1.0) * ((SONG_SECS - t) / 0.4).min(1.0);
+        let al = |x: f32| x as u8; // everything at full strength, faded once at the end
+        let (aw, ah) = (area.2 as f32, area.3 as f32);
+        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0);
+        let sc = Scale::new(k);
+        let (w, h) = ((820.0 * k).round(), (164.0 * k).round());
+        if self.osd.w != w as usize || self.osd.h != h as usize {
+            self.osd = Layer::new(w as u32, h as u32);
+        } else {
+            self.osd.clear();
+        }
+        let cover = self.cover.as_ref();
+        let accent = cover.map_or(th().text, |c| c.accent);
+        let mut p = Painter { layer: &mut self.osd, font: FontStyle::Smooth };
+        let r = 26.0 * k;
+        let bg = lerp_rgb(th().bg, WHITE, 0.07);
+        p.layer.fill_rrect((0.0, 0.0, w, h), r, &move |_| bg, al(255.0));
+        p.layer.fill_rrect((0.0, 0.0, w, h), r, &move |t| lerp_rgb(accent, th().bg, t), al(26.0));
+        p.layer.stroke_rrect((0.0, 0.0, w, h), r, 1.0, WHITE, al(40.0));
+        let pad = 16.0 * k;
+        let cs = h - 2.0 * pad;
+        match cover {
+            Some(c) => blit_cover(&mut p, c, pad, pad, cs, 16.0 * k),
+            None => {
+                p.layer.fill_rrect((pad, pad, cs, cs), 16.0 * k, &|t| lerp_rgb((40, 42, 52), (24, 25, 32), t), al(255.0));
+                music_note(&mut p, pad + cs / 2.0, pad + cs / 2.0, cs * 0.34, th().muted);
+            }
+        }
+        let tx = pad + cs + 26.0 * k;
+        let tw = w - tx - 28.0 * k;
+        circle(&mut p, tx + 5.0 * k, pad + 14.0 * k, 5.0 * k, accent, al(255.0));
+        spaced(&mut p, tx + 18.0 * k, pad + 14.0 * k + sc.s / 2.0, "NOW PLAYING", sc.s, W::Medium, th().muted, 2.0 * k);
+        let title = clean_title(&tr.title);
+        let tcap = sc.l;
+        let title = ellipsize(&p, &title, tcap, W::Medium, tw);
+        let ty = pad + 30.0 * k + sc.s + tcap;
+        p.text(tx, ty, &title, tcap, W::Medium, th().text, al(255.0));
+        let artist = ellipsize(&p, &tr.artist, sc.m * 1.25, W::Regular, tw);
+        p.text(tx, ty + 18.0 * k + sc.m * 1.25, &artist, sc.m * 1.25, W::Regular, th().muted, al(255.0));
+        if a < 1.0 {
+            p.layer.scale_alpha(a);
+        }
+        let ox = area.0 + ((aw - w) / 2.0).max(0.0) as u32;
+        let oy = area.1 + ((ah - h) / 2.0).max(0.0) as u32;
+        self.osd.composite_onto(fb, ox, oy);
     }
 
     /// Feed the current master volume; a change (not the first reading) opens the pop-up.
@@ -433,7 +549,7 @@ impl ProScreen {
 
     /// True while the volume pop-up is on screen (the main loop then draws smooth frames).
     pub fn osd_active(&self) -> bool {
-        self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS)
+        self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS) || self.song_osd_active()
     }
 
     /// A clean pill in the middle of the screen: speaker, level bar, percent.
@@ -1338,6 +1454,58 @@ fn cover_accent(rgb: &[u8]) -> Rgb {
         b = (b * f).min(255.0);
     }
     (r as u8, g as u8, b as u8)
+}
+
+/// Three distinct, bright-enough colors of a cover: the strongest hues, or shades of
+/// the accent when the cover has only one color.
+fn cover_palette(rgb: &[u8], accent: Rgb) -> [Rgb; 3] {
+    const BINS: usize = 18;
+    let mut acc = [(0f32, 0f32, 0f32, 0f32); BINS];
+    for px in rgb.chunks_exact(3).step_by(2) {
+        let (r, g, b) = (px[0] as f32, px[1] as f32, px[2] as f32);
+        let mx = r.max(g).max(b);
+        let mn = r.min(g).min(b);
+        if mx < 40.0 || mx - mn < 30.0 {
+            continue;
+        }
+        let d = mx - mn;
+        let h = if mx == r { ((g - b) / d).rem_euclid(6.0) } else if mx == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 };
+        let bin = ((h / 6.0 * BINS as f32) as usize).min(BINS - 1);
+        let wgt = (d / mx) * (mx / 255.0);
+        let e = &mut acc[bin];
+        e.0 += r * wgt;
+        e.1 += g * wgt;
+        e.2 += b * wgt;
+        e.3 += wgt;
+    }
+    let total: f32 = acc.iter().map(|e| e.3).sum();
+    let mut order: Vec<usize> = (0..BINS).filter(|&i| acc[i].3 > total * 0.04).collect();
+    order.sort_by(|a, b| acc[*b].3.total_cmp(&acc[*a].3));
+    let mut picked: Vec<usize> = Vec::new();
+    for i in order {
+        let far = picked.iter().all(|&j| {
+            let dd = (i as i32 - j as i32).rem_euclid(BINS as i32);
+            dd.min(BINS as i32 - dd) >= 2
+        });
+        if far {
+            picked.push(i);
+        }
+        if picked.len() == 3 {
+            break;
+        }
+    }
+    let bright = |c: (f32, f32, f32)| -> Rgb {
+        let mx = c.0.max(c.1).max(c.2).max(1.0);
+        let f = (225.0 / mx).max(1.0);
+        ((c.0 * f).min(255.0) as u8, (c.1 * f).min(255.0) as u8, (c.2 * f).min(255.0) as u8)
+    };
+    let mut out: Vec<Rgb> = picked.iter().map(|&i| { let e = acc[i]; bright((e.0 / e.3, e.1 / e.3, e.2 / e.3)) }).collect();
+    let base = out.first().copied().unwrap_or(accent);
+    while out.len() < 3 {
+        let n = out.len();
+        out.push(if n == 1 { lerp_rgb(base, WHITE, 0.35) } else { lerp_rgb(base, (120, 120, 140), 0.35) });
+    }
+    [out[0], out[1], out[2]]
 }
 
 fn blit_cover(p: &mut Painter, c: &Cover, x: f32, y: f32, size: f32, radius: f32) {
