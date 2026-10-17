@@ -1801,6 +1801,16 @@ fn now_playing_compact(p: &mut Painter, r: R, sc: &Scale, d: &Data, cover: Optio
         let f = (tl.position_now_ms() as f32 / tl.duration_ms as f32).clamp(0.0, 1.0);
         let by = y + h - 4.0 * k;
         hbar(p, tx, by, tw, 4.0 * k, Some(f), [accent, lerp_rgb(accent, WHITE, 0.45)]);
+        // elapsed / total, above the bar (only where the box is tall enough)
+        if h >= 80.0 * k {
+            let (el, tot) = (mmss(tl.position_now_ms().min(tl.duration_ms) / 1000), mmss(tl.duration_ms / 1000));
+            let tsz = sc.s * 1.05;
+            let ty = by - 12.0 * k;
+            let (tw1, tw2) = (p.width(&el, tsz, W::Medium), p.width(&format!(" / {tot}"), tsz, W::Regular));
+            let x0 = tx + tw - tw1 - tw2;
+            p.text(x0, ty, &el, tsz, W::Medium, th().text, 255);
+            p.text(x0 + tw1, ty, &format!(" / {tot}"), tsz, W::Regular, th().muted, 255);
+        }
     }
 }
 
