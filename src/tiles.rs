@@ -488,6 +488,32 @@ impl Layer {
         }
     }
 
+    /// Overwrites the whole layer with `other` (same size), e.g. a cached background.
+    pub(crate) fn copy_from(&mut self, other: &Layer) {
+        if other.w == self.w && other.h == self.h {
+            self.px.copy_from_slice(&other.px);
+        }
+    }
+
+    /// Copies this layer, turned by 90 degrees, into `dst` (which must be `h` wide and `w` high):
+    /// clockwise by default, counter-clockwise when `ccw`.
+    pub(crate) fn rotate_into(&self, dst: &mut Layer, ccw: bool) {
+        if dst.w != self.h || dst.h != self.w {
+            *dst = Layer::new(self.h as u32, self.w as u32);
+        }
+        let (sw, sh) = (self.w, self.h);
+        let dw = dst.w;
+        for y in 0..dst.h {
+            for x in 0..dw {
+                // panel (x, y) <- canvas (cx, cy)
+                let (cx, cy) = if ccw { (sw - 1 - y, x) } else { (y, sh - 1 - x) };
+                let si = (cy * sw + cx) * 4;
+                let di = (y * dw + x) * 4;
+                dst.px[di..di + 4].copy_from_slice(&self.px[si..si + 4]);
+            }
+        }
+    }
+
     /// Lays the layer over `fb` with its top-left corner at (ox, oy).
     pub fn composite_onto(&self, fb: &mut Framebuffer, ox: u32, oy: u32) {
         let fw = fb.width() as usize;

@@ -27,6 +27,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
+#[path = "pro_designs.rs"]
+mod designs;
+
 type Rgb = (u8, u8, u8);
 type R = (f32, f32, f32, f32);
 
@@ -113,16 +116,56 @@ pub enum Layout {
     Cockpit,
     /// A few huge numbers.
     Focus,
+    /// Solid colored rounded tiles (bento box).
+    Bento,
+    /// Green-phosphor terminal.
+    Terminal,
+    /// Angular, slanted HUD (racing / cyberpunk).
+    Chamfer,
+    /// Concentric activity rings.
+    Rings,
+    /// Dot-matrix digits.
+    Dots,
+    /// Portrait: lock screen over an aurora.
+    Lock,
+    /// Portrait: LED level meters.
+    Equalizer,
+    /// Portrait: a paper receipt.
+    Receipt,
+    /// Portrait: retro sunset.
+    Synthwave,
+    /// Portrait: technical drawing.
+    Blueprint,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 3] = [Layout::Classic, Layout::Cockpit, Layout::Focus];
+    /// The landscape designs (what `pro_layout = all` rotates through).
+    pub const ALL: [Layout; 8] = [Layout::Classic, Layout::Cockpit, Layout::Focus, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
+    pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
         match self {
             Layout::Classic => "classic",
             Layout::Cockpit => "cockpit",
             Layout::Focus => "focus",
+            Layout::Bento => "bento",
+            Layout::Terminal => "terminal",
+            Layout::Chamfer => "chamfer",
+            Layout::Rings => "rings",
+            Layout::Dots => "dots",
+            Layout::Lock => "lock",
+            Layout::Equalizer => "equalizer",
+            Layout::Receipt => "receipt",
+            Layout::Synthwave => "synthwave",
+            Layout::Blueprint => "blueprint",
         }
+    }
+    /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
+    pub fn portrait(self) -> bool {
+        Layout::PORTRAIT.contains(&self)
+    }
+    fn find(name: &str) -> Option<Layout> {
+        Layout::ALL.iter().chain(Layout::PORTRAIT.iter()).copied().find(|l| l.name() == name)
     }
 }
 
@@ -138,11 +181,13 @@ pub struct Settings {
     pub cover_color: bool,
     /// Pop-up with the cover when a new song starts.
     pub song_popup: bool,
+    /// Portrait layouts: turn the picture counter-clockwise instead of clockwise.
+    pub rotate_ccw: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true }
+        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false }
     }
 }
 
@@ -176,11 +221,17 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
                 list.extend_from_slice(&Layout::ALL);
                 continue;
             }
-            let l = Layout::ALL
-                .iter()
-                .find(|l| l.name() == name)
-                .ok_or_else(|| anyhow::anyhow!("pro_layout: '{name}' is not valid (classic, cockpit, focus, all)"))?;
-            list.push(*l);
+            if name == "portrait" {
+                list.extend_from_slice(&Layout::PORTRAIT);
+                continue;
+            }
+            let l = Layout::find(&name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "pro_layout: '{name}' is not valid ({}, all, portrait)",
+                    Layout::ALL.iter().chain(Layout::PORTRAIT.iter()).map(|l| l.name()).collect::<Vec<_>>().join(", ")
+                )
+            })?;
+            list.push(l);
         }
         if !list.is_empty() {
             s.layouts = list;
@@ -212,6 +263,13 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
     }
     if let Some(v) = file.get("pro_song_popup") {
         s.song_popup = flag("pro_song_popup", v)?;
+    }
+    if let Some(v) = file.get("pro_rotate") {
+        s.rotate_ccw = match v.trim().to_ascii_lowercase().as_str() {
+            "cw" | "clockwise" | "90" | "right" => false,
+            "ccw" | "counterclockwise" | "270" | "left" => true,
+            _ => anyhow::bail!("pro_rotate: '{v}' not valid (cw | ccw)"),
+        };
     }
     Ok(s)
 }
@@ -299,6 +357,10 @@ pub struct ProScreen {
     vol: Option<(f32, bool)>,
     vol_since: Option<Instant>,
     osd: Layer,
+    /// Portrait layouts: the canvas is drawn upright here, then turned into `layer`.
+    canvas: Layer,
+    portrait: bool,
+    rotate_ccw: bool,
     /// Last song seen (title, artist), whether the first frame passed, and since when its pop-up shows.
     last_song: Option<(String, String)>,
     song_init: bool,
@@ -328,6 +390,9 @@ impl ProScreen {
             vol: None,
             vol_since: None,
             osd: Layer::new(1, 1),
+            canvas: Layer::new(1, 1),
+            portrait: false,
+            rotate_ccw: false,
             last_song: None,
             song_init: false,
             song_since: None,
@@ -432,24 +497,39 @@ impl ProScreen {
             progress,
             self.hist_ver,
         );
+        let portrait = layout.portrait();
         if sig != self.sig {
             let (w, h) = (area.2, area.3);
+            let (cw, ch) = if portrait { (h, w) } else { (w, h) };
             if self.layer.w != w as usize || self.layer.h != h as usize {
                 self.layer = Layer::new(w, h);
-            } else {
+            } else if !portrait {
                 self.layer.clear();
+            }
+            if portrait {
+                if self.canvas.w != cw as usize || self.canvas.h != ch as usize {
+                    self.canvas = Layer::new(cw, ch);
+                } else {
+                    self.canvas.clear();
+                }
             }
             let cover = self.cover.as_ref();
             let hist = (&self.cpu, &self.gpu, &self.net);
-            let mut p = Painter { layer: &mut self.layer, font: FontStyle::Smooth };
+            let target_layer: &mut Layer = if portrait { &mut self.canvas } else { &mut self.layer };
+            let mut p = Painter { layer: target_layer, font: FontStyle::Smooth };
             MARQ.with(|m| m.borrow_mut().clear());
-            let (wf, hf) = (w as f32, h as f32);
-            let k = (hf / 462.0).min(wf / 1920.0 * 1.15).clamp(0.5, 2.0);
+            NO_MARQ.with(|c| c.set(portrait));
+            let (wf, hf) = (cw as f32, ch as f32);
+            let k = if portrait { (wf / 462.0).clamp(0.5, 2.0) } else { (hf / 462.0).min(wf / 1920.0 * 1.15).clamp(0.5, 2.0) };
             let sc = Scale::new(k);
             match layout {
                 Layout::Classic => paint(&mut p, wf, hf, d, &now, hist, cover),
                 Layout::Cockpit => paint_cockpit(&mut p, wf, hf, &sc, d, &now, cover),
                 Layout::Focus => paint_focus(&mut p, wf, hf, &sc, d, &now, hist, cover),
+                _ => designs::paint(layout, &mut p, wf, hf, &sc, d, &now, hist, cover),
+            }
+            if portrait {
+                self.canvas.rotate_into(&mut self.layer, settings.rotate_ccw);
             }
             let found = MARQ.with(|m| std::mem::take(&mut *m.borrow_mut()));
             let same_text = found.iter().map(|m| &m.text).eq(self.marquees.iter().map(|m| &m.text));
@@ -460,6 +540,8 @@ impl ProScreen {
             self.marquee_k = k;
             self.sig = sig;
         }
+        self.portrait = portrait;
+        self.rotate_ccw = settings.rotate_ccw;
         self.layer.composite_onto(fb, area.0, area.1);
         let t = self.marquee_since.elapsed().as_secs_f32();
         for m in &self.marquees {
@@ -491,7 +573,7 @@ impl ProScreen {
         let a = (t / 0.15).min(1.0) * ((SONG_SECS - t) / 0.4).min(1.0);
         let al = |x: f32| x as u8; // everything at full strength, faded once at the end
         let (aw, ah) = (area.2 as f32, area.3 as f32);
-        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0);
+        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0) * if self.portrait { 0.52 } else { 1.0 };
         let sc = Scale::new(k);
         let (w, h) = ((820.0 * k).round(), (164.0 * k).round());
         if self.osd.w != w as usize || self.osd.h != h as usize {
@@ -530,9 +612,23 @@ impl ProScreen {
         if a < 1.0 {
             p.layer.scale_alpha(a);
         }
-        let ox = area.0 + ((aw - w) / 2.0).max(0.0) as u32;
-        let oy = area.1 + ((ah - h) / 2.0).max(0.0) as u32;
-        self.osd.composite_onto(fb, ox, oy);
+        self.place_osd(fb, area);
+    }
+
+    /// Puts the pop-up in the middle of the panel (turned like the screen when it is vertical).
+    fn place_osd(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32)) {
+        let (aw, ah) = (area.2 as f32, area.3 as f32);
+        if self.portrait {
+            let mut rot = Layer::new(self.osd.h as u32, self.osd.w as u32);
+            self.osd.rotate_into(&mut rot, self.rotate_ccw);
+            let ox = area.0 + ((aw - rot.w as f32) / 2.0).max(0.0) as u32;
+            let oy = area.1 + ((ah - rot.h as f32) / 2.0).max(0.0) as u32;
+            rot.composite_onto(fb, ox, oy);
+        } else {
+            let ox = area.0 + ((aw - self.osd.w as f32) / 2.0).max(0.0) as u32;
+            let oy = area.1 + ((ah - self.osd.h as f32) / 2.0).max(0.0) as u32;
+            self.osd.composite_onto(fb, ox, oy);
+        }
     }
 
     /// Feed the current master volume; a change (not the first reading) opens the pop-up.
@@ -562,7 +658,7 @@ impl ProScreen {
         let a = (t / 0.12).min(1.0) * ((OSD_SECS - t) / 0.35).min(1.0);
         let al = |x: f32| (x * a).round().clamp(0.0, 255.0) as u8;
         let (aw, ah) = (area.2 as f32, area.3 as f32);
-        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0);
+        let k = (ah / 462.0).min(aw / 1920.0 * 1.15).clamp(0.5, 2.0) * if self.portrait { 0.66 } else { 1.0 };
         let sc = Scale::new(k);
         let (w, h) = ((640.0 * k).round(), (112.0 * k).round());
         if self.osd.w != w as usize || self.osd.h != h as usize {
@@ -619,9 +715,7 @@ impl ProScreen {
         let tx = w - 34.0 * k - tw - uw - 4.0 * k;
         p.text(tx, cy + cap / 2.0, &txt, cap, W::Medium, if muted { th().dim } else { th().text }, al(255.0));
         p.text(tx + tw + 4.0 * k, cy + cap / 2.0, "%", cap * 0.5, W::Regular, th().muted, al(255.0));
-        let ox = area.0 + ((aw - w) / 2.0).max(0.0) as u32;
-        let oy = area.1 + ((ah - h) / 2.0).max(0.0) as u32;
-        self.osd.composite_onto(fb, ox, oy);
+        self.place_osd(fb, area);
     }
 
     /// True while a title is scrolling (the main loop then raises the frame rate).
@@ -1586,6 +1680,8 @@ struct MarqueeSpec {
 
 thread_local! {
     static MARQ: std::cell::RefCell<Vec<MarqueeSpec>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Vertical screens do not scroll titles (the scroll runs on the unturned frame): they are cut with "...".
+    static NO_MARQ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 const MARQ_HOLD: f32 = 3.0;
@@ -1603,6 +1699,9 @@ fn sfw(w: W) -> crate::smooth_font::Weight {
 fn title_line(p: &mut Painter, x: f32, base: f32, w: f32, text: &str, cap: f32, wt: W, color: Rgb) {
     if p.width(text, cap, wt) <= w {
         p.text(x, base, text, cap, wt, color, 255);
+    } else if NO_MARQ.with(|c| c.get()) {
+        let t = ellipsize(p, text, cap, wt, w);
+        p.text(x, base, &t, cap, wt, color, 255);
     } else {
         MARQ.with(|m| m.borrow_mut().push(MarqueeSpec { x, w, base, cap, weight: wt, color, text: text.to_string() }));
     }
