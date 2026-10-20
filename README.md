@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-444?style=flat-square)](#install)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-dea584?style=flat-square)](https://www.rust-lang.org/)
 
-[**Download**](../../releases/latest) · [Layouts](#layouts) · [Themes](#themes) · [Install](#install) · [Configure](#configure) · [FAQ](#faq)
+[**Download**](../../releases/latest) · [Layouts](#layouts) · [Performance](#performance) · [Themes](#themes) · [Install](#install) · [Configure](#configure) · [FAQ](#faq)
 
 </div>
 
@@ -35,10 +35,34 @@ modern look and the layouts below.
 - **Everything on screen, always** — date & clock, weather with a 3-day forecast, CPU (temp, load, power, clock, fan, uptime, network down/up), GPU (temp, hotspot, load, power, fan, clock, VRAM, **FPS + frame-time**), RAM (used / free / total), SSD temperature and disk usage, SSD read / write.
 - **Now playing** — album art, title (auto-scrolling when too long), artist, **elapsed / total time** and progress. Optionally the accent colors follow the cover art.
 - **Pop-ups** — volume / mute overlay and a "new song" card appear for a few seconds, then disappear.
-- **Light on your PC** — the dashboard only redraws when something actually changes (about once per second when idle) and uses a fraction of a CPU thread. Your games come first.
+- **Light on your PC** — the dashboard only redraws when something actually changes (about once per second when idle) and uses well under 1% of a modern CPU (see [Performance](#performance)). Your games come first.
 - **Unicode-ready font** — bundled *Chakra Petch* (futuristic, gaming look) with full **Vietnamese** and Latin-extended diacritics for song titles and artists.
 - **Set-and-forget** — auto-reconnects when the USB cable is unplugged, optional start-with-Windows, **live config reload** (edit the file, see the change within a second).
 - **Rotate through designs** — `pro_layout = all` cycles every landscape layout, `pro_theme = all` cycles every theme.
+
+## Performance
+
+The dashboard only redraws when something on screen actually changes (about once per second when idle), so it stays out of your way.
+
+Measured on Windows 11 with a Ryzen 7 5700X3D (8 cores / 16 threads) and a Radeon RX 6900 XT, 30 seconds per layout, idle desktop (no game, no music playing). CPU time of all `trofeo_lcd.exe` processes:
+
+| Layout | % of one thread | % of whole CPU |
+|---|---:|---:|
+| Focus | 7.1 | 0.45 |
+| Bento | 7.4 | 0.46 |
+| Dots | 7.3 | 0.46 |
+| Equalizer | 7.8 | 0.49 |
+| Blueprint | 8.2 | 0.51 |
+| Terminal | 9.0 | 0.56 |
+| Receipt | 10.0 | 0.63 |
+| Chamfer | 10.2 | 0.64 |
+| Synthwave | 10.2 | 0.64 |
+| Classic | 10.3 | 0.64 |
+| Lock | 11.7 | 0.73 |
+| Cockpit | 13.2 | 0.83 |
+| Rings | 14.3 | 0.90 |
+
+Memory use is roughly 24-35 MB. Even the busiest layout stays under 1% of the whole CPU. Numbers will differ a little on other machines and while music or a game is running.
 
 ## Layouts
 
