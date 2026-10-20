@@ -80,3 +80,11 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
 None of this would exist without the original reverse-engineering and
 implementation work in the two upstream projects — thank you to their
 authors.
+
+## Pro dashboard (this repository)
+
+On top of `haven80/trofeo-lcd-rs`, this repository adds the **pro** renderer (`src/pro.rs`,
+`src/pro_designs.rs`, `src/tiles.rs`, `src/smooth_font.rs`), ten new layouts (five landscape, five
+portrait), portrait rotation support, the Chakra Petch font subset (SIL OFL 1.1, `assets/OFL.txt`) and the
+Windows helper package in `windows/`. These additions were developed with AI assistance (Claude) and are
+released under the same GPL-3.0-or-later license.
