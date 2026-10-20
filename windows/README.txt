@@ -6,7 +6,6 @@ TROFEO PRO DASHBOARD - Windows package
 
 Other files
   trofeo.conf          Settings. Edit + save = the display updates within ~1 second.
-  trofeo_config.exe    Graphical settings editor.
   restart.bat          Restart the display.      uninstall.bat   Remove autostart and stop it.
   preview.bat          Render the current look to _preview\preview.png (no hardware needed).
 
