@@ -11,6 +11,9 @@
 
 use super::*;
 
+#[path = "pro_minimal.rs"]
+mod minimal;
+
 // ------------------------------------------------------------- view model
 
 /// One labelled reading.
@@ -341,7 +344,9 @@ pub(super) fn paint(layout: Layout, p: &mut Painter, w: f32, h: f32, sc: &Scale,
         Layout::Receipt => receipt(p, w, h, sc, d, &v, cover),
         Layout::Synthwave => synthwave(p, w, h, sc, d, &v, cover),
         Layout::Blueprint => blueprint(p, w, h, sc, d, &v, cover),
-        _ => {}
+        _ => {
+            minimal::paint(layout, p, w, h, sc, d, &v, hist, cover);
+        }
     }
 }
 

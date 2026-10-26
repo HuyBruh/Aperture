@@ -1512,6 +1512,31 @@ fn report_config_error(msg: &str) {
     }
 }
 
+/// `trofeo-status.txt` next to the program: what the display process found (display,
+/// sensor sources), read by Trofeo Studio to explain problems. Rewritten only on change.
+fn set_status(key: &str, value: &str) {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+    static STATUS: Mutex<Option<(BTreeMap<String, String>, std::time::Instant)>> = Mutex::new(None);
+    let Ok(mut g) = STATUS.lock() else { return };
+    let (map, last) = g.get_or_insert_with(|| (BTreeMap::new(), std::time::Instant::now() - Duration::from_secs(60)));
+    let changed = map.get(key).map(|v| v.as_str()) != Some(value);
+    map.insert(key.to_string(), value.to_string());
+    // also refresh the time stamp every 10 s so Studio knows the program is alive
+    if !changed && last.elapsed() < Duration::from_secs(10) {
+        return;
+    }
+    *last = std::time::Instant::now();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut text = format!("updated={now}\r\n");
+    for (k, v) in map.iter() {
+        text.push_str(&format!("{k}={v}\r\n"));
+    }
+    if let Some(p) = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("trofeo-status.txt"))) {
+        let _ = std::fs::write(p, text);
+    }
+}
+
 /// Config file signature, used to detect changes.
 fn config_stamp(explicit: Option<&std::path::Path>) -> Option<(std::path::PathBuf, std::time::SystemTime, u64)> {
     let p = ConfigFile::find_path(explicit)?;
@@ -1538,7 +1563,7 @@ fn main() -> anyhow::Result<()> {
         println!("ADL (AMD) full: {amd:?}");
         print!("{}", amd_sensor.dump());
         println!("System drive: {:?}", sysextra::read_disk());
-        println!("CPU fan (HWiNFO shared memory): {:?}", sysextra::hwinfo_cpu_fan());
+        println!("External sensors (HWiNFO / LibreHardwareMonitor): {:?}", trofeo_lcd::sensors_ext::read_any());
         let s = System::new_all();
         println!("CPU: {:?} -> {:?}, cores {:?}/{}", s.cpus().first().map(|c| c.brand().to_string()), sysextra::clean_cpu_name(s.cpus().first().map(|c| c.brand()).unwrap_or("")), s.physical_core_count(), s.cpus().len());
         if let Some(n) = gpu_nvml::NvSensor::new() {
@@ -1569,8 +1594,15 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    let lcd = LyLcd::open()?;
+    let lcd = match LyLcd::open() {
+        Ok(l) => l,
+        Err(e) => {
+            set_status("lcd", "not_found");
+            return Err(e.into());
+        }
+    };
     let mut hs = lcd.handshake()?;
+    set_status("lcd", "connected");
     hs.rotate_180 = ROTATE_180_OVERRIDE;
     hs.rotation = config.orientation.output_rotation(config.flip);
     hs.brightness = config.brightness;
@@ -2102,19 +2134,48 @@ fn main() -> anyhow::Result<()> {
                 (0, 0, fb.width(), fb.height())
             };
             let extra = pro_extra.lock().map(|g| g.clone()).unwrap_or_default();
+            let ext = extra.ext.as_ref().map(|(_, s)| s);
+            let fan_pick = opts().pro.fan_sensor.clone();
+            let ext_fan = ext.and_then(|s| s.cpu_fan(Some(fan_pick.as_str()).filter(|f| !f.is_empty())));
+            let mut gpu_full = latest_gpu_data.clone();
+            if gpu_full.temp_hotspot_c.is_none() {
+                gpu_full.temp_hotspot_c = ext.and_then(|s| s.gpu_hotspot());
+            }
+            {
+                let src = |own: bool, ext_ok: bool| -> &'static str {
+                    if own {
+                        "builtin"
+                    } else if ext_ok {
+                        match extra.ext.as_ref().map(|(s, _)| *s) {
+                            Some(trofeo_lcd::sensors_ext::Source::Hwinfo) => "hwinfo",
+                            _ => "lhm",
+                        }
+                    } else {
+                        "none"
+                    }
+                };
+                set_status("cpu_temp", src(latest_cpu_temp.is_some(), ext.and_then(|s| s.cpu_temp()).is_some()));
+                set_status("cpu_fan", src(false, ext_fan.is_some()));
+                set_status("gpu_hotspot", src(latest_gpu_data.temp_hotspot_c.is_some(), gpu_full.temp_hotspot_c.is_some()));
+                set_status("ext", match extra.ext.as_ref().map(|(s, _)| *s) {
+                    Some(trofeo_lcd::sensors_ext::Source::Hwinfo) => "hwinfo",
+                    Some(trofeo_lcd::sensors_ext::Source::Lhm) => "lhm",
+                    None => "none",
+                });
+            }
             let data = pro::Data {
                 cpu_name: &pro_cpu_name,
                 cores: pro_cores,
                 cpu_pct: sys.global_cpu_info().cpu_usage(),
-                cpu_temp: latest_cpu_temp,
+                cpu_temp: latest_cpu_temp.or_else(|| ext.and_then(|s| s.cpu_temp())),
                 cpu_power: latest_cpu_power,
                 cpu_mhz: latest_cpu_mhz,
                 gpu_pct: latest_gpu_percent,
-                gpu: &latest_gpu_data,
+                gpu: &gpu_full,
                 ram_used_mb: sys.used_memory() / 1024 / 1024,
                 ram_total_mb: sys.total_memory() / 1024 / 1024,
                 disk: extra.disk.as_ref(),
-                cpu_fan_rpm: extra.cpu_fan_rpm,
+                cpu_fan_rpm: ext_fan,
                 disk_rate: latest_disk_mb,
                 net_kb: latest_net_kb,
                 weather: latest_weather.as_ref(),

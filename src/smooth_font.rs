@@ -26,14 +26,43 @@ pub enum Weight {
 static LIGHT: &[u8] = include_bytes!("../assets/ChakraPetch-Light-subset.ttf");
 static REGULAR: &[u8] = include_bytes!("../assets/ChakraPetch-Regular-subset.ttf");
 static MEDIUM: &[u8] = include_bytes!("../assets/ChakraPetch-Medium-subset.ttf");
+// Inter (SIL Open Font License, see assets/Inter-OFL.txt): the neutral face of the clean
+// layouts. Light / Regular / Medium map to Inter Light / Regular / SemiBold.
+static INTER_LIGHT: &[u8] = include_bytes!("../assets/Inter-Light-subset.ttf");
+static INTER_REGULAR: &[u8] = include_bytes!("../assets/Inter-Regular-subset.ttf");
+static INTER_MEDIUM: &[u8] = include_bytes!("../assets/Inter-SemiBold-subset.ttf");
 
-/// Height of the digits, as a fraction of the em size (Chakra Petch: digits and capitals 0.700).
-const CAP_RATIO: f32 = 0.700;
+/// The typeface used by the next drawing calls.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Family {
+    Chakra,
+    Inter,
+}
+
+static FAMILY: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Chooses the typeface (the whole drawing happens on one thread, frame by frame).
+pub fn set_family(f: Family) {
+    FAMILY.store(f as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn family() -> Family {
+    if FAMILY.load(std::sync::atomic::Ordering::Relaxed) == 1 { Family::Inter } else { Family::Chakra }
+}
+
+/// Height of the digits, as a fraction of the em size (Chakra Petch: 0.700, Inter: 0.727).
+fn cap_ratio() -> f32 {
+    match family() {
+        Family::Chakra => 0.700,
+        Family::Inter => 0.727,
+    }
+}
 
 struct Fonts {
     light: Font,
     regular: Font,
     medium: Font,
+    inter: [Font; 3],
     /// A system font for the characters the embedded subset does not have
     /// (Vietnamese, Greek, Cyrillic, ... in song titles). Windows only.
     fallback: Option<Font>,
@@ -68,6 +97,7 @@ fn fonts() -> &'static Fonts {
             light: load(LIGHT),
             regular: load(REGULAR),
             medium: load(MEDIUM),
+            inter: [load(INTER_LIGHT), load(INTER_REGULAR), load(INTER_MEDIUM)],
             fallback: system_font(&["segoeui.ttf", "arial.ttf"]),
             fallback_bold: system_font(&["seguisb.ttf", "segoeui.ttf", "arial.ttf"]),
         }
@@ -76,10 +106,13 @@ fn fonts() -> &'static Fonts {
 
 fn font(w: Weight) -> &'static Font {
     let f = fonts();
-    match w {
-        Weight::Light => &f.light,
-        Weight::Regular => &f.regular,
-        Weight::Medium => &f.medium,
+    match (family(), w) {
+        (Family::Inter, Weight::Light) => &f.inter[0],
+        (Family::Inter, Weight::Regular) => &f.inter[1],
+        (Family::Inter, Weight::Medium) => &f.inter[2],
+        (Family::Chakra, Weight::Light) => &f.light,
+        (Family::Chakra, Weight::Regular) => &f.regular,
+        (Family::Chakra, Weight::Medium) => &f.medium,
     }
 }
 
@@ -95,7 +128,7 @@ struct Glyph {
 }
 
 thread_local! {
-    static CACHE: RefCell<HashMap<(Weight, char, u32), Rc<Glyph>>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<HashMap<(Family, Weight, char, u32), Rc<Glyph>>> = RefCell::new(HashMap::new());
 }
 
 /// Characters the subset does not have are shown as the closest thing it has.
@@ -121,7 +154,7 @@ fn glyph(c: char, px: f32, w: Weight) -> Rc<Glyph> {
             cache.clear();
         }
         cache
-            .entry((w, c, key))
+            .entry((family(), w, c, key))
             .or_insert_with(|| {
                 let f = fonts();
                 let fb = if w == Weight::Medium { f.fallback_bold.as_ref() } else { f.fallback.as_ref() };
@@ -139,7 +172,7 @@ fn glyph(c: char, px: f32, w: Weight) -> Rc<Glyph> {
 
 /// Em size (pixels) whose capital letters are `cap` pixels tall.
 pub fn px_for_cap(cap: f32) -> f32 {
-    (cap / CAP_RATIO).max(1.0)
+    (cap / cap_ratio()).max(1.0)
 }
 
 /// Width of `text` in pixels at the given em size.

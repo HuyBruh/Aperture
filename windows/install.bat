@@ -9,5 +9,6 @@ echo Installing Trofeo Pro Dashboard (autostart + launch)...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup.ps1"
 echo.
 echo Done. The dashboard is running and will start at every Windows logon.
-echo Next: double-click choose-layout.bat to pick a layout and theme.
+echo Opening HuyBruh Dash: pick a layout, colors and features there.
+start "" "%~dp0huybruh_dash.exe"
 timeout /t 10

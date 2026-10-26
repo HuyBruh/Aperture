@@ -94,6 +94,10 @@ path = "src/bin/screen.rs"
 name = "trofeo_config"
 path = "src/bin/config_editor.rs"
 
+[[bin]]
+name = "huybruh_dash"
+path = "src/bin/studio.rs"
+
 [target."cfg(target_os = \"linux\")".dependencies]
 # Loopback audio (EQ bars) via PulseAudio OR PipeWire+pipewire-pulse — see
 # src/audio.rs (device "@DEFAULT_MONITOR@"). Both bindings are pure-Rust APIs

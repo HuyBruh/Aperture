@@ -88,3 +88,9 @@ On top of `haven80/trofeo-lcd-rs`, this repository adds the **pro** renderer (`s
 portrait), portrait rotation support, the Chakra Petch font subset (SIL OFL 1.1, `assets/OFL.txt`) and the
 Windows helper package in `windows/`. These additions were developed with AI assistance (Claude) and are
 released under the same GPL-3.0-or-later license.
+
+
+## HuyBruh Dash additions
+
+- `src/resources/IntelMSR.bin`: official signed PawnIO module from [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) 0.2.11, LGPL-2.1-or-later, embedded unchanged.
+- `assets/Inter-*-subset.ttf`: subsets of [Inter](https://github.com/rsms/inter), SIL OFL 1.1 (`assets/Inter-OFL.txt`).

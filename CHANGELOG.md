@@ -1,5 +1,35 @@
 # Changelog
 
+
+## 3.0 — HuyBruh Dash
+
+- New name: **HuyBruh Dash**, with an HB logo and a 2-second start-up logo on the display.
+- **Clean collection:** studio, grid, line, split, meter, glance, daylight (Inter, strict grid, Focus-size text).
+- **HuyBruh Dash app** (`huybruh_dash.exe`): live preview, layout gallery, colors, display, features, sensors & help; English / Vietnamese. It replaces `choose-layout.bat`, `extras.bat` and `gallery.bat`.
+- Intel CPU temperature and power through PawnIO (IntelMSR module); the installer installs PawnIO with winget.
+- CPU temperature, CPU fan and GPU hotspot fall back to LibreHardwareMonitor (web server) or HWiNFO, read every second; `pro_fan_sensor` picks the fan.
+- `trofeo-status.txt`: the display program reports the display and sensor sources (used by the app).
+- Installer: checks that the display is connected, closes TRCC, explains the source-code-ZIP mistake, creates a desktop shortcut.
+- Focus: clock, weather and music moved to the left.
+- Removed the 2.0 novelty layouts (swiss stays).
+
+## Pro Dashboard 2.0 — 2026-10-21
+
+### 21 new landscape layouts (34 in total)
+`aurora` frosted glass · `nixie` glowing tubes · `vfd` 7-segment vacuum display · `radar` sweeping scope ·
+`scope` oscilloscope · `paper` newspaper · `swiss` typographic grid · `isometric` 3D towers ·
+`ticker` trading terminal · `rpg` 8-bit HUD · `analog` hi-fi receiver · `hologram` · `flip` split-flap board ·
+`neonsign` · `vinyl` turntable · `circuit` PCB · `pop` comic pop-art · `topo` map · `mercury` thermometers ·
+`hud` fighter-jet HUD · `gamer` session dashboard (FPS graph, average / 1 % low / max, peak temperatures, session time).
+
+### New options
+- `pro_game_layout` / `pro_game_theme` — switch automatically while a game reports FPS (3 s to enter, 10 s to leave).
+- `pro_night = 22:00-07:00`, `pro_night_dim`, `pro_night_theme` — night schedule with dimming.
+- `pro_alert_cpu` / `pro_alert_gpu` — pulsing red frame and "HOT" pill above a temperature (3 °C hysteresis).
+- `pro_theme = #RRGGBB` or `pro_accent = #RRGGBB` — a complete theme grown from one color.
+- `pro_clock = 12h` — 12-hour clock with AM / PM.
+- Windows helpers: `extras.bat` (guided setup of the above), `gallery.bat` (renders every layout), `choose-layout.bat` accepts names and lists all layouts.
+
 ## Pro Dashboard 1.0 — 2026-10-20
 
 First release of the **pro** dashboard on top of `trofeo-lcd-rs` 1.1.0.

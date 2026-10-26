@@ -1,44 +1,54 @@
 <div align="center">
 
-<img src="docs/img/hero.png" alt="Trofeo Pro Dashboard — 13 layouts for the Thermalright Trofeo Vision LCD" width="100%">
+<img src="docs/img/hero.png" alt="HuyBruh Dash on the Thermalright Trofeo Vision 9.16-inch LCD" width="100%">
 
-# Trofeo Pro Dashboard
+# HuyBruh Dash
 
-**A fast, good-looking system dashboard for the Thermalright Trofeo Vision LCD.**<br>
-13 hand-built layouts · 6 color themes · landscape *and* portrait · live CPU / GPU / RAM / SSD / network · FPS · now-playing with album art · weather
+**A clean, fast system dashboard for the Thermalright Trofeo Vision 9.16″ LCD.**<br>
+21 layouts · a friendly settings app (English / Tiếng Việt) · CPU / GPU / RAM / SSD / network · FPS · weather · now playing
 
 [![Release](https://img.shields.io/github/v/release/HuyBruh/trofeo-lcd-rs?include_prereleases&style=flat-square&color=7c5cff)](../../releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--or--later-3dd9d6?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-444?style=flat-square)](#install)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-dea584?style=flat-square)](https://www.rust-lang.org/)
 
-[**Download**](../../releases/latest) · [Layouts](#layouts) · [Performance](#performance) · [Themes](#themes) · [Install](#install) · [Configure](#configure) · [FAQ](#faq)
+[**Download**](../../releases/latest) · [What's new](#whats-new-in-30) · [Layouts](#layouts) · [The app](#the-app) · [Install](#install) · [FAQ](#faq)
 
 </div>
 
 ---
 
-## Why this exists
+## What it is
 
-The official software is heavy and gives you one look. **Trofeo Pro Dashboard** is a small native
-program (Rust, no browser, no runtime) that drives the panel directly over USB and gives you a gallery
-of completely different designs — from a minimal giant-digits view to a retro synthwave sunset — all
-showing the **same complete set of readings**. Pick one, change theme, or let it cycle.
+The official software is heavy and gives you one look. **HuyBruh Dash** is a small native program (Rust,
+no browser, no runtime) that drives the panel directly over USB. It shows the same complete set of
+readings on every layout, and you change everything in a clean settings window: no config files, no
+console menus.
 
-It is built on top of the excellent open-source [`trofeo-lcd-rs`](https://github.com/haven80/trofeo-lcd-rs)
-driver (see [Credits](#credits)) and adds a new "**pro**" renderer with smooth anti-aliased text, a
-modern look and the layouts below.
+Every layout shows:
 
-## Highlights
+- the date and the clock
+- the weather with a 3-day forecast
+- the CPU: temperature, load, power, clock, fan, uptime and network
+- the GPU: temperature, hotspot, load, power, fan, clock, VRAM, and FPS with frame time
+- memory, SSD temperature, disk usage and read / write speed
+- the song playing, with its cover, elapsed / total time and progress
 
-- **13 layouts, 6 themes** — landscape designs for the 1920×462 panel and **5 portrait designs** for vertically mounted displays.
-- **Everything on screen, always** — date & clock, weather with a 3-day forecast, CPU (temp, load, power, clock, fan, uptime, network down/up), GPU (temp, hotspot, load, power, fan, clock, VRAM, **FPS + frame-time**), RAM (used / free / total), SSD temperature and disk usage, SSD read / write.
-- **Now playing** — album art, title (auto-scrolling when too long), artist, **elapsed / total time** and progress. Optionally the accent colors follow the cover art.
-- **Pop-ups** — volume / mute overlay and a "new song" card appear for a few seconds, then disappear.
-- **Light on your PC** — the dashboard only redraws when something actually changes (about once per second when idle) and uses well under 1% of a modern CPU (see [Performance](#performance)). Your games come first.
-- **Unicode-ready font** — bundled *Chakra Petch* (futuristic, gaming look) with full **Vietnamese** and Latin-extended diacritics for song titles and artists.
-- **Set-and-forget** — auto-reconnects when the USB cable is unplugged, optional start-with-Windows, **live config reload** (edit the file, see the change within a second).
-- **Rotate through designs** — `pro_layout = all` cycles every landscape layout, `pro_theme = all` cycles every theme.
+## What's new in 3.0
+
+- **The clean collection.** Seven new minimal layouts: Studio, Grid, Line, Split, Meter, Glance and Daylight. They use the Inter typeface on a strict grid, with even spacing and the same large sizes as Focus.
+- **The HuyBruh Dash app replaces the console menus.**
+  - Live preview of the display.
+  - A gallery of every layout with thumbnails.
+  - Colors (or your own color), flip 180°, brightness, 12 / 24 h clock, weather city.
+  - Game mode, night mode and heat alert.
+  - English or Vietnamese. Every change shows on the display instantly.
+- **Sensors & help page.** It says where each reading comes from and fixes the common problems: it installs PawnIO, picks the right CPU fan, restarts the display and explains a blank screen.
+- **Intel CPUs.** Temperature and power now work through PawnIO, which the installer installs for you.
+- **CPU fan and GPU hotspot from LibreHardwareMonitor** (free, no time limit) or HWiNFO, refreshed every second.
+- **A smarter installer.** It checks that the display is connected, closes Thermalright TRCC and warns about the wrong download.
+- **A start-up logo** for two seconds when the display starts.
+- **Removed:** the 2.0 "fun" layouts. They looked busy and did not meet the bar.
 
 ## Performance
 
@@ -64,135 +74,144 @@ Measured on Windows 11 with a Ryzen 7 5700X3D (8 cores / 16 threads) and a Radeo
 
 Memory use is roughly 24-35 MB. Even the busiest layout stays under 1% of the whole CPU. Numbers will differ a little on other machines and while music or a game is running.
 
+The clean collection (3.0) draws the same way and has not been measured separately yet.
+
 ## Layouts
 
-### Landscape
+### The clean collection
+
+<img src="docs/img/clean-collection.png" alt="Studio, Grid, Line, Split, Meter, Glance, Daylight" width="100%">
+
+<table>
+<tr><td align="center" width="50%"><img src="docs/img/studio.png"><br><b>Studio</b><br><sub>four columns on one grid, hairline tables</sub></td><td align="center" width="50%"><img src="docs/img/grid.png"><br><b>Grid</b><br><sub>rounded tiles like phone widgets</sub></td></tr>
+<tr><td align="center"><img src="docs/img/line.png"><br><b>Line</b><br><sub>five hero numbers with trend lines, one row per section</sub></td><td align="center"><img src="docs/img/split.png"><br><b>Split</b><br><sub>big clock and music on the left, stat rows on the right</sub></td></tr>
+<tr><td align="center"><img src="docs/img/meter.png"><br><b>Meter</b><br><sub>thin bar meters, easy to scan</sub></td><td align="center"><img src="docs/img/glance.png"><br><b>Glance</b><br><sub>the two temperatures, readable across the room</sub></td></tr>
+<tr><td align="center"><img src="docs/img/daylight.png"><br><b>Daylight</b><br><sub>light mode, white cards</sub></td><td align="center"><img src="docs/img/focus.png"><br><b>Focus</b><br><sub>giant digits, the original favorite</sub></td></tr>
+</table>
+
+### More landscape layouts
 
 | | |
 |---|---|
-| **Focus** — giant digits, nothing else. Four calm columns: CPU · GPU · Memory · Clock/Weather/Music.<br><img src="docs/img/focus.png" width="100%"> | **Classic** — the original rounded cards (3 styles: *cards*, *glass*, *flat*).<br><img src="docs/img/classic.png" width="100%"> |
-| **Cockpit** — twin automotive-style gauges for CPU and GPU, clock in the middle.<br><img src="docs/img/cockpit.png" width="100%"> | **Bento** — saturated, colourful tiles in an Apple-keynote style.<br><img src="docs/img/bento.png" width="100%"> |
-| **Terminal** — a green-on-black console with ASCII bars and a shell prompt.<br><img src="docs/img/terminal.png" width="100%"> | **Chamfer** — angular HUD panels with slanted numerals, straight out of a sci-fi game.<br><img src="docs/img/chamfer.png" width="100%"> |
-| **Rings** — nested activity rings (load · temperature · clock) for CPU, GPU and memory.<br><img src="docs/img/rings.png" width="100%"> | **Dots** — LED dot-matrix numerals on a clean black field.<br><img src="docs/img/dots.png" width="100%"> |
+| **Swiss** — Swiss typographic grid.<br><img src="docs/img/swiss.png" width="100%"> | **Classic** — rounded cards (*cards*, *glass*, *flat*).<br><img src="docs/img/classic.png" width="100%"> |
+| **Cockpit** — twin gauges, clock in the middle.<br><img src="docs/img/cockpit.png" width="100%"> | **Bento** — colorful tiles.<br><img src="docs/img/bento.png" width="100%"> |
+| **Terminal** — green console with ASCII bars.<br><img src="docs/img/terminal.png" width="100%"> | **Chamfer** — angular game HUD.<br><img src="docs/img/chamfer.png" width="100%"> |
+| **Rings** — activity rings.<br><img src="docs/img/rings.png" width="100%"> | **Dots** — LED dot matrix.<br><img src="docs/img/dots.png" width="100%"> |
 
-### Portrait — for vertically mounted displays
+### Portrait (vertically mounted display)
 
-Set `pro_rotate = cw` (or `ccw`) to match the direction you turned the screen.
+<table><tr>
+<td align="center"><img src="docs/img/lock.png" height="420"><br><b>Lock</b></td>
+<td align="center"><img src="docs/img/equalizer.png" height="420"><br><b>Equalizer</b></td>
+<td align="center"><img src="docs/img/receipt.png" height="420"><br><b>Receipt</b></td>
+<td align="center"><img src="docs/img/synthwave.png" height="420"><br><b>Synthwave</b></td>
+<td align="center"><img src="docs/img/blueprint.png" height="420"><br><b>Blueprint</b></td>
+</tr></table>
 
-<table>
-<tr>
-<td align="center" width="20%"><img src="docs/img/lock.png"><br><b>Lock</b><br><sub>phone lock-screen with frosted-glass cards over an aurora</sub></td>
-<td align="center" width="20%"><img src="docs/img/equalizer.png"><br><b>Equalizer</b><br><sub>hi-fi LED level meters</sub></td>
-<td align="center" width="20%"><img src="docs/img/receipt.png"><br><b>Receipt</b><br><sub>thermal-paper receipt with a halftone cover and barcode</sub></td>
-<td align="center" width="20%"><img src="docs/img/synthwave.png"><br><b>Synthwave</b><br><sub>retro sun, neon grid floor, glowing text</sub></td>
-<td align="center" width="20%"><img src="docs/img/blueprint.png"><br><b>Blueprint</b><br><sub>technical drawing with a title block</sub></td>
-</tr>
-</table>
+### Color themes
 
-## Themes
+NZXT, Graphite, Crimson, Arctic, Ember, Neon, or any color you pick (the app builds a matching palette).
 
-Every layout follows the active color theme. Six are included — **nzxt**, **graphite**, **crimson**,
-**arctic**, **ember**, **neon** — and any of them can be combined with any layout.
+<img src="docs/img/themes-clean.png" alt="Studio in the six themes" width="100%">
 
-<img src="docs/img/themes.png" alt="Six color themes" width="100%">
+## The app
 
-Turn on `pro_cover_color = true` and the accent colors are taken from the album art of whatever is playing.
+<img src="docs/img/huybruh-dash-app.png" alt="HuyBruh Dash settings app" width="49%"> <img src="docs/img/huybruh-dash-help.png" alt="Sensors and help page" width="49%">
+
+Open **HuyBruh Dash** from the desktop shortcut or `HuyBruh Dash.bat`. It has five pages:
+
+- **Layouts:** every layout with a thumbnail. You can also rotate through all of them.
+- **Colors:** six themes, your own color, the panel style, and whether colors follow the album cover.
+- **Display:** flip 180° (for a panel mounted upside down), brightness, portrait turn direction, 12 / 24 h clock, °C / °F and the weather city.
+- **Features:**
+  - new-song pop-up
+  - game mode: switches layout and colors while a game shows FPS
+  - night mode: dims the display and can change colors during the hours you set
+  - heat alert: a red frame pulses above the temperature you choose
+- **Sensors & help:**
+  - display status, and why a screen might stay blank
+  - where each reading comes from
+  - one-click PawnIO install
+  - CPU fan picker and restart button
 
 ## Install
 
-### Windows (recommended)
+### Windows
 
-1. Download **`trofeo-pro-dashboard-windows.zip`** from the [latest release](../../releases/latest) and unzip it anywhere you want to keep it.
-2. Close the official TRCC software if it is running (two programs can't drive the LCD at once).
-3. Double-click **`install.bat`** and accept the UAC prompt. This registers a *Scheduled Task* that starts the dashboard at every logon (elevated, so FPS capture works) and launches it now.
-4. Double-click **`choose-layout.bat`** to pick a layout, theme and style. The screen updates instantly.
+1. Download **`huybruh-dash-windows.zip`** from [Releases](../../releases/latest). Do *not* use "Code → Download ZIP": that is the source code and has no program in it.
+2. Unzip it anywhere and close Thermalright TRCC.
+3. Double-click **`install.bat`** and accept the UAC prompt. It does six things:
+   - checks that the display is found
+   - closes TRCC
+   - installs the PawnIO sensor driver
+   - starts the dashboard now and at every logon
+   - creates a desktop shortcut
+   - opens HuyBruh Dash
 
-Uninstall: **`uninstall.bat`**. Restart the display: **`restart.bat`**. Preview a design without the hardware: **`preview.bat`**.
+Optional extras:
 
-> **Windows Defender / SmartScreen** may warn about an unsigned executable. The binary is built from the
-> source in this repository; you can also [build it yourself](#build-from-source).
+- **CPU fan speed:** run [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest) (free) and turn on *Options → Remote Web Server → Run*. HWiNFO also works with *Settings → Shared Memory Support*.
+- **FPS:** works on its own with DirectX games (the autostart task runs as Administrator).
 
-Optional, for extra readings:
-
-- **CPU fan RPM** — run [HWiNFO64](https://www.hwinfo.com/) and enable *Settings → Sensors → Shared Memory Support* (the free edition turns it off after 12 h).
-- **AMD CPU temperature / power** — install [PawnIO](https://github.com/namazso/PawnIO) (see the [original guide](docs/UPSTREAM_README.md#usage)).
+The program is not code-signed, so SmartScreen may warn you. The source is right here if you prefer to build it yourself.
 
 ### Linux
 
-Needs `pkg-config`, PulseAudio headers and `playerctl` (song titles). For USB access without `sudo`, install
-`99-trofeo-lcd.rules`.
+Needs `pkg-config`, PulseAudio headers and `playerctl` (song titles). For USB access without `sudo`, install `99-trofeo-lcd.rules`.
 
 ```bash
 cargo build --release
-./target/release/trofeo_lcd
+./target/release/trofeo_lcd          # the display
+./target/release/huybruh_dash        # the settings app
 ```
 
-### Build from source
+## Configure by hand (optional)
 
-```bash
-git clone https://github.com/HuyBruh/trofeo-lcd-rs
-cd trofeo-lcd-rs
-cargo build --release          # trofeo_lcd, trofeo_screen, trofeo_config
-```
-
-The pro renderer is pure Rust (software rasteriser + [fontdue](https://github.com/mooman219/fontdue)); no GPU or browser is involved.
-
-## Configure
-
-Everything lives in `trofeo.conf` next to the executable and is **hot-reloaded** every second.
+Everything the app changes lives in `trofeo.conf` next to the program and is re-read every second.
 
 ```ini
-layout      = pro
-pro_layout  = focus            # see the table below
-pro_theme   = nzxt             # nzxt | graphite | crimson | arctic | ember | neon | all
-pro_style   = cards            # cards | glass | flat   (classic / cockpit / focus only)
-pro_rotate  = cw               # cw | ccw   (portrait layouts only)
-pro_cover_color = true         # accent colors follow the album art
-pro_song_popup  = true         # "new song" card
-flip        = false            # true if the panel is mounted upside-down
-weather_city = London, England # optional — default is auto-detect by IP
+layout       = pro
+pro_layout   = studio        # focus studio grid line split meter glance daylight swiss classic cockpit bento
+                             # terminal chamfer rings dots | lock equalizer receipt synthwave blueprint | all
+pro_theme    = nzxt          # nzxt graphite crimson arctic ember neon all  or  #RRGGBB
+flip         = false         # true if the picture is upside down
+pro_clock    = 24h           # or 12h
+pro_game_layout = focus      # game mode
+pro_night    = 22:00-07:00   # night mode (+ pro_night_dim, pro_night_theme)
+pro_alert_cpu = 90           # heat alert, °C (0 = off); pro_alert_gpu
+pro_fan_sensor =             # which HWiNFO / LibreHardwareMonitor fan is the CPU fan (empty = automatic)
+weather_city = Hanoi, Vietnam
 ```
 
-| `pro_layout` | Orientation | Look |
-|---|---|---|
-| `classic` `cockpit` `focus` | landscape | cards · twin gauges · giant digits |
-| `bento` `terminal` `chamfer` `rings` `dots` | landscape | colour tiles · console · HUD · activity rings · LED matrix |
-| `lock` `equalizer` `receipt` `synthwave` `blueprint` | portrait | lock screen · LED meters · receipt · retro sunset · blueprint |
-| `all` | landscape | cycle through every landscape layout |
-| `portrait` | portrait | cycle through the five portrait layouts |
-
-Combine names with commas to build your own rotation, e.g. `pro_layout = focus, rings, dots` and set
-`pro_theme_interval = 30` (minutes per theme). A full reference of the original options is in
-[OPTIONS_GUIDE.md](OPTIONS_GUIDE.md) and the [upstream README](docs/UPSTREAM_README.md).
-
-### Preview without hardware
+Preview without the hardware:
 
 ```bash
 trofeo_lcd --preview-png preview.png --preview-state music --config trofeo.conf
 ```
 
-renders the current configuration to a PNG (`--preview-state idle|music`). Portrait layouts are saved as they appear on the rotated panel.
-
 ## FAQ
 
-**Which displays are supported?** Developed and tested on the **Thermalright Trofeo Vision 9.16"** (1920×462, USB `0416:5408`). The driver also supports the 11.3" panel; the pro layouts scale to the panel size but have not been tuned on it.
+**Which displays are supported?** The **Trofeo Vision 9.16″** (1920 × 462, USB `0416:5408`). The 6.86″ model is not supported.
 
-**The picture is upside-down.** Set `flip = true`. For portrait layouts switch `pro_rotate` between `cw` and `ccw`.
+**Nothing shows on the display.** Close Thermalright TRCC and remove it from Windows startup, check the USB cable, then open HuyBruh Dash → *Sensors & help*. It tells you whether the display was found.
 
-**CPU fan shows `--`.** Enable *Shared Memory Support* in HWiNFO64 (see above).
+**The picture is upside down.** HuyBruh Dash → *Display* → *Turn it 180°*.
 
-**FPS shows `--`.** FPS is captured with ETW and needs the program to run as Administrator (the autostart task does this) while a DirectX game is in the foreground.
+**CPU temperature is missing.** HuyBruh Dash → *Sensors & help* → *Install PawnIO*. AMD Ryzen and Intel Core are supported. LibreHardwareMonitor or HWiNFO can also supply it.
 
-**Can I add my own design?** Yes — each layout is a single function in [`src/pro_designs.rs`](src/pro_designs.rs) that paints on a 1920×462 (or 462×1920) canvas with a few drawing helpers. Pull requests with new designs are very welcome.
+**GPU hotspot is missing on an RTX 50 card.** NVIDIA removed that sensor from the RTX 50 series, so no program can read it.
+
+**Can I add my own design?** Yes. Each layout is one function in [`src/pro_minimal.rs`](src/pro_minimal.rs) or [`src/pro_designs.rs`](src/pro_designs.rs), drawn with a few helpers. Pull requests are welcome.
 
 ## Credits
 
 - Protocol and driver: [haven80/trofeo-lcd-rs](https://github.com/haven80/trofeo-lcd-rs) ← [sukualam/trofeo-lcd](https://github.com/sukualam/trofeo-lcd) ← [Lexonight1/thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux). See [NOTICE.md](NOTICE.md).
-- Font: [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch) © The Chakra Petch Project Authors, SIL Open Font License 1.1 ([`assets/OFL.txt`](assets/OFL.txt)).
-- Weather data: [Open-Meteo](https://open-meteo.com/).
-- The pro dashboard, its 10 new designs and the portrait support were developed with AI assistance ([Claude](https://claude.ai)).
+- Sensors: [PawnIO](https://github.com/namazso/PawnIO) and its signed modules (LGPL-2.1), [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) and HWiNFO when they run.
+- Fonts: [Inter](https://github.com/rsms/inter) and [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch), SIL Open Font License 1.1 ([`assets/Inter-OFL.txt`](assets/Inter-OFL.txt), [`assets/OFL.txt`](assets/OFL.txt)).
+- Weather: [Open-Meteo](https://open-meteo.com/).
+- HuyBruh Dash (the pro dashboard, its layouts and the app) is made by **HuyBruh**, built with AI assistance ([Claude](https://claude.ai)).
 
-*This project is not affiliated with or endorsed by Thermalright.*
+*Not affiliated with or endorsed by Thermalright.*
 
 ## License
 

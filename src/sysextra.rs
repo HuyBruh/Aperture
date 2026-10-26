@@ -36,106 +36,45 @@ impl DiskInfo {
 #[derive(Clone, Debug, Default)]
 pub struct Extra {
     pub disk: Option<DiskInfo>,
-    /// CPU fan speed, when HWiNFO is running with "Shared Memory Support" on.
-    pub cpu_fan_rpm: Option<u32>,
+    /// Temperatures and fans from HWiNFO or LibreHardwareMonitor, when one of them runs.
+    pub ext: Option<(trofeo_lcd::sensors_ext::Source, trofeo_lcd::sensors_ext::Snapshot)>,
 }
 
 pub type SharedExtra = Arc<Mutex<Extra>>;
 
-/// Starts the background reader: the CPU fan every 2 s, the disk every 10 s.
+/// Starts the background reader: HWiNFO / LibreHardwareMonitor every second (looked for
+/// again every 10 s while neither runs), the disk every 10 s.
 pub fn spawn_watcher() -> SharedExtra {
     let shared: SharedExtra = Arc::new(Mutex::new(Extra::default()));
     let out = shared.clone();
     let _ = std::thread::Builder::new().name("sys-extra".into()).spawn(move || {
         let mut n = 0u32;
+        let mut wait_ext = 0u32;
         loop {
-            let fan = hwinfo_cpu_fan();
-            let disk = (n % 5 == 0).then(read_disk);
+            let ext = if wait_ext == 0 {
+                let e = trofeo_lcd::sensors_ext::read_any();
+                if e.is_none() {
+                    wait_ext = 10;
+                }
+                Some(e)
+            } else {
+                wait_ext -= 1;
+                None
+            };
+            let disk = (n % 10 == 0).then(read_disk);
             if let Ok(mut g) = out.lock() {
-                g.cpu_fan_rpm = fan;
+                if let Some(e) = ext {
+                    g.ext = e;
+                }
                 if let Some(d) = disk {
                     g.disk = d;
                 }
             }
             n = n.wrapping_add(1);
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(1));
         }
     });
     shared
-}
-
-/// CPU fan RPM from HWiNFO's shared memory (`Global\HWiNFO_SENS_SM2`), if HWiNFO
-/// is running with Settings -> "Shared Memory Support" enabled. `None` otherwise.
-#[cfg(windows)]
-pub fn hwinfo_cpu_fan() -> Option<u32> {
-    hwinfo_fans().and_then(|fans| pick_cpu_fan(&fans))
-}
-
-#[cfg(not(windows))]
-pub fn hwinfo_cpu_fan() -> Option<u32> {
-    None
-}
-
-/// Picks the CPU fan among (label, rpm) readings: "CPU" / "CPU Fan" first, then any
-/// label containing "CPU" (not "OPT"/"PUMP"), then "CPU OPT".
-pub fn pick_cpu_fan(fans: &[(String, f64)]) -> Option<u32> {
-    let l = |s: &str| s.to_ascii_lowercase();
-    let exact = fans.iter().find(|(n, _)| matches!(l(n).trim(), "cpu" | "cpu fan" | "cpu_fan" | "cpu fan1"));
-    let any = || fans.iter().find(|(n, _)| { let n = l(n); n.contains("cpu") && !n.contains("opt") && !n.contains("pump") });
-    let opt = || fans.iter().find(|(n, _)| l(n).contains("cpu"));
-    exact.or_else(any).or_else(opt).map(|(_, v)| v.max(0.0).round() as u32)
-}
-
-#[cfg(windows)]
-fn hwinfo_fans() -> Option<Vec<(String, f64)>> {
-    use std::ffi::c_void;
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn OpenFileMappingW(access: u32, inherit: i32, name: *const u16) -> isize;
-        fn MapViewOfFile(h: isize, access: u32, hi: u32, lo: u32, bytes: usize) -> *const c_void;
-        fn UnmapViewOfFile(base: *const c_void) -> i32;
-        fn CloseHandle(h: isize) -> i32;
-    }
-    const FILE_MAP_READ: u32 = 4;
-    let name: Vec<u16> = "Global\\HWiNFO_SENS_SM2".encode_utf16().chain(std::iter::once(0)).collect();
-    let h = unsafe { OpenFileMappingW(FILE_MAP_READ, 0, name.as_ptr()) };
-    if h == 0 {
-        return None;
-    }
-    let base = unsafe { MapViewOfFile(h, FILE_MAP_READ, 0, 0, 0) } as *const u8;
-    if base.is_null() {
-        unsafe { CloseHandle(h) };
-        return None;
-    }
-    let rd32 = |off: usize| -> u32 { unsafe { std::ptr::read_unaligned(base.add(off) as *const u32) } };
-    let mut out = Vec::new();
-    // header (packed): signature 'HWiS' at 0, reading section offset/size/count at 32/36/40
-    let sig = unsafe { std::slice::from_raw_parts(base, 4) };
-    if sig == b"HWiS" {
-        let (off, size, count) = (rd32(32) as usize, rd32(36) as usize, rd32(40) as usize);
-        if size >= 292 && count < 10_000 {
-            for i in 0..count {
-                let e = off + i * size;
-                if rd32(e) != 3 {
-                    continue; // 3 = SENSOR_TYPE_FAN
-                }
-                let label = |o: usize| -> String {
-                    let bytes = unsafe { std::slice::from_raw_parts(base.add(e + o), 128) };
-                    let end = bytes.iter().position(|b| *b == 0).unwrap_or(128);
-                    String::from_utf8_lossy(&bytes[..end]).trim().to_string()
-                };
-                let user = label(140);
-                let name = if user.is_empty() { label(12) } else { user };
-                let value = unsafe { std::ptr::read_unaligned(base.add(e + 284) as *const f64) };
-                out.push((name, value));
-            }
-        }
-    }
-    unsafe {
-        UnmapViewOfFile(base as *const c_void);
-        CloseHandle(h);
-    }
-    Some(out)
 }
 
 /// The system drive: `%SystemDrive%` on Windows, `/` elsewhere.
@@ -263,7 +202,7 @@ mod tests {
 
     #[test]
     fn cpu_fan_is_picked() {
-        let f = |v: &[(&str, f64)]| pick_cpu_fan(&v.iter().map(|(a, b)| (a.to_string(), *b)).collect::<Vec<_>>());
+        let f = |v: &[(&str, f64)]| trofeo_lcd::sensors_ext::pick_cpu_fan(&v.iter().map(|(a, b)| (a.to_string(), *b)).collect::<Vec<_>>());
         assert_eq!(f(&[("System 1", 900.0), ("CPU", 1210.4), ("CPU OPT", 0.0)]), Some(1210));
         assert_eq!(f(&[("CPU OPT", 800.0)]), Some(800));
         assert_eq!(f(&[("Chassis", 800.0)]), None);

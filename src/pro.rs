@@ -136,11 +136,27 @@ pub enum Layout {
     Synthwave,
     /// Portrait: technical drawing.
     Blueprint,
+    /// Swiss typographic grid.
+    Swiss,
+    /// Clean collection (Inter): even columns with hairline tables.
+    Studio,
+    /// Clean: rounded tiles like phone widgets.
+    Grid,
+    /// Clean: one row of hero numbers with trend lines.
+    Line,
+    /// Clean: time and music on the left half, stat rows on the right.
+    Split,
+    /// Clean: thin bar meters.
+    Meter,
+    /// Clean: the two temperatures first.
+    Glance,
+    /// Clean: light mode.
+    Daylight,
 }
 
 impl Layout {
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 8] = [Layout::Classic, Layout::Cockpit, Layout::Focus, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 16] = [Layout::Focus, Layout::Studio, Layout::Grid, Layout::Line, Layout::Split, Layout::Meter, Layout::Glance, Layout::Daylight, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
@@ -158,7 +174,19 @@ impl Layout {
             Layout::Receipt => "receipt",
             Layout::Synthwave => "synthwave",
             Layout::Blueprint => "blueprint",
+            Layout::Swiss => "swiss",
+            Layout::Studio => "studio",
+            Layout::Grid => "grid",
+            Layout::Line => "line",
+            Layout::Split => "split",
+            Layout::Meter => "meter",
+            Layout::Glance => "glance",
+            Layout::Daylight => "daylight",
         }
+    }
+    /// The clean collection, drawn with Inter.
+    pub fn clean(self) -> bool {
+        matches!(self, Layout::Studio | Layout::Grid | Layout::Line | Layout::Split | Layout::Meter | Layout::Glance | Layout::Daylight)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {
@@ -183,11 +211,25 @@ pub struct Settings {
     pub song_popup: bool,
     /// Portrait layouts: turn the picture counter-clockwise instead of clockwise.
     pub rotate_ccw: bool,
+    /// Layout / theme to switch to while a game reports FPS.
+    pub game_layout: Option<Layout>,
+    pub game_theme: Option<Theme>,
+    /// Night schedule (start, end) in minutes after midnight, its theme and brightness (percent).
+    pub night: Option<(u32, u32)>,
+    pub night_theme: Option<Theme>,
+    pub night_dim: u32,
+    /// Temperature (°C) that makes the screen flash; 0 = off.
+    pub alert_cpu: u32,
+    pub alert_gpu: u32,
+    /// 12-hour clock with AM / PM.
+    pub clock12: bool,
+    /// Label of the fan to show as CPU fan (HWiNFO / LibreHardwareMonitor); empty = automatic.
+    pub fan_sensor: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false }
+        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false, game_layout: None, game_theme: None, night: None, night_theme: None, night_dim: 40, alert_cpu: 0, alert_gpu: 0, clock12: false, fan_sensor: String::new() }
     }
 }
 
@@ -195,8 +237,108 @@ pub fn theme_names() -> String {
     THEMES.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")
 }
 
+fn parse_hex(v: &str) -> Option<Rgb> {
+    let h = v.trim().trim_start_matches('#');
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let n = u32::from_str_radix(h, 16).ok()?;
+    Some(((n >> 16) as u8, (n >> 8) as u8, n as u8))
+}
+
+fn rgb_to_hsv(c: Rgb) -> (f32, f32, f32) {
+    let (r, g, b) = (c.0 as f32 / 255.0, c.1 as f32 / 255.0, c.2 as f32 / 255.0);
+    let (mx, mn) = (r.max(g).max(b), r.min(g).min(b));
+    let d = mx - mn;
+    let h = if d < 1e-6 {
+        0.0
+    } else if mx == r {
+        60.0 * (((g - b) / d).rem_euclid(6.0))
+    } else if mx == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    (h, if mx <= 0.0 { 0.0 } else { d / mx }, mx)
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Rgb {
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = match (h.rem_euclid(360.0) / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    (((r + m) * 255.0).round() as u8, ((g + m) * 255.0).round() as u8, ((b + m) * 255.0).round() as u8)
+}
+
+impl Theme {
+    /// A full theme grown from one color: the CPU takes the color itself, the others are
+    /// spread around the color wheel.
+    pub fn from_accent(c: Rgb) -> Theme {
+        let (h, s, _) = rgb_to_hsv(c);
+        let s = s.clamp(0.5, 0.9);
+        let pair = |dh: f32| {
+            let b = hsv_to_rgb((h + dh).rem_euclid(360.0), s, 0.96);
+            [b, lerp_rgb(b, WHITE, 0.45)]
+        };
+        let cpu = [c, lerp_rgb(c, WHITE, 0.45)];
+        let net = pair(205.0);
+        Theme {
+            name: "custom",
+            bg: (0, 0, 0),
+            panel: (12, 13, 17),
+            text: (242, 243, 246),
+            muted: (168, 172, 184),
+            dim: (118, 122, 136),
+            cpu,
+            gpu: pair(150.0),
+            ram: pair(-60.0),
+            ssd: pair(45.0),
+            net,
+            up: net[1],
+            fps: (163, 230, 53),
+            time: (255, 255, 255),
+        }
+    }
+}
+
+fn theme_of(name: &str, accent: Option<Rgb>, key: &str) -> anyhow::Result<Theme> {
+    if name.starts_with('#') {
+        return parse_hex(name).map(Theme::from_accent).ok_or_else(|| anyhow::anyhow!("{key}: '{name}' is not a color (#RRGGBB)"));
+    }
+    if name == "custom" {
+        return accent.map(Theme::from_accent).ok_or_else(|| anyhow::anyhow!("{key}: 'custom' needs pro_accent = #RRGGBB"));
+    }
+    THEMES
+        .iter()
+        .find(|t| t.name == name)
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("{key}: '{name}' is not a theme ({}, custom, #RRGGBB, all)", theme_names()))
+}
+
+fn parse_time_range(key: &str, v: &str) -> anyhow::Result<(u32, u32)> {
+    let bad = || anyhow::anyhow!("{key}: '{v}' not valid (HH:MM-HH:MM, e.g. 22:00-07:00)");
+    let (a, b) = v.split_once('-').ok_or_else(bad)?;
+    let hm = |t: &str| -> Option<u32> {
+        let (h, m) = t.trim().split_once(':')?;
+        let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    };
+    Ok((hm(a).ok_or_else(bad)?, hm(b).ok_or_else(bad)?))
+}
+
 pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
     let mut s = Settings::default();
+    let accent = match file.get("pro_accent") {
+        Some(v) => Some(parse_hex(v).ok_or_else(|| anyhow::anyhow!("pro_accent: '{v}' is not a color (#RRGGBB)"))?),
+        None => None,
+    };
     if let Some(v) = file.get("pro_theme") {
         let mut list = Vec::new();
         for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty()) {
@@ -204,15 +346,60 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
                 list.extend_from_slice(THEMES);
                 continue;
             }
-            let t = THEMES
-                .iter()
-                .find(|t| t.name == name)
-                .ok_or_else(|| anyhow::anyhow!("pro_theme: '{name}' is not a theme ({}, all)", theme_names()))?;
-            list.push(*t);
+            list.push(theme_of(&name, accent, "pro_theme")?);
         }
         if !list.is_empty() {
             s.themes = list;
         }
+    } else if let Some(c) = accent {
+        s.themes = vec![Theme::from_accent(c)];
+    }
+    for (key, slot) in [("pro_game_theme", 0), ("pro_night_theme", 1)] {
+        if let Some(v) = file.get(key) {
+            let t = theme_of(&v.trim().to_ascii_lowercase(), accent, key)?;
+            if slot == 0 {
+                s.game_theme = Some(t);
+            } else {
+                s.night_theme = Some(t);
+            }
+        }
+    }
+    if let Some(v) = file.get("pro_game_layout") {
+        let name = v.trim().to_ascii_lowercase();
+        s.game_layout = Some(Layout::find(&name).ok_or_else(|| anyhow::anyhow!("pro_game_layout: '{name}' is not a layout"))?);
+    }
+    if let Some(v) = file.get("pro_night") {
+        if !matches!(v.trim().to_ascii_lowercase().as_str(), "" | "off" | "no" | "false") {
+            s.night = Some(parse_time_range("pro_night", v.trim())?);
+        }
+    }
+    if let Some(v) = file.get_u32("pro_night_dim").map_err(|e| anyhow::anyhow!(e))? {
+        if !(10..=100).contains(&v) {
+            anyhow::bail!("pro_night_dim: 10-100 (percent brightness at night)");
+        }
+        s.night_dim = v;
+    }
+    for (key, slot) in [("pro_alert_cpu", 0), ("pro_alert_gpu", 1)] {
+        if let Some(v) = file.get_u32(key).map_err(|e| anyhow::anyhow!(e))? {
+            if v != 0 && !(40..=120).contains(&v) {
+                anyhow::bail!("{key}: 0 (off) or 40-120 °C");
+            }
+            if slot == 0 {
+                s.alert_cpu = v;
+            } else {
+                s.alert_gpu = v;
+            }
+        }
+    }
+    if let Some(v) = file.get("pro_fan_sensor") {
+        s.fan_sensor = v.trim().to_string();
+    }
+    if let Some(v) = file.get("pro_clock") {
+        s.clock12 = match v.trim().to_ascii_lowercase().as_str() {
+            "12" | "12h" | "am/pm" | "ampm" => true,
+            "24" | "24h" => false,
+            _ => anyhow::bail!("pro_clock: '{v}' not valid (24h | 12h)"),
+        };
     }
     if let Some(v) = file.get("pro_layout") {
         let mut list = Vec::new();
@@ -276,6 +463,27 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
 
 thread_local! {
     static CURRENT: std::cell::Cell<(Theme, Style)> = std::cell::Cell::new((THEMES[0], Style::Cards));
+}
+
+static CLOCK_12H: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// What the game-session layout shows (filled by [`ProScreen`] before painting).
+#[derive(Clone, Default)]
+struct SessionStats {
+    /// FPS of the last two minutes, one sample per second (0 = no game).
+    fps: Vec<f32>,
+    avg: f32,
+    max: f32,
+    /// Average of the slowest 1 % of the samples.
+    low1: f32,
+    peak_cpu: f32,
+    peak_gpu: f32,
+    secs: u64,
+    gaming: bool,
+}
+
+thread_local! {
+    static STATS: std::cell::RefCell<SessionStats> = std::cell::RefCell::new(SessionStats::default());
 }
 
 fn th() -> Theme {
@@ -365,7 +573,55 @@ pub struct ProScreen {
     last_song: Option<(String, String)>,
     song_init: bool,
     song_since: Option<Instant>,
+    /// FPS history (one sample per second) and every FPS sample of the current game session.
+    fps: VecDeque<f32>,
+    fps_samples: Vec<f32>,
+    peak_cpu: f32,
+    peak_gpu: f32,
+    session_start: Instant,
+    game_since: Option<Instant>,
+    fps_last: Option<Instant>,
+    alert_cpu: bool,
+    alert_gpu: bool,
+    alert_temps: (Option<f32>, Option<f32>),
+    alert_since: Instant,
+    /// Start-up logo: when it appeared (None = not shown yet), and whether it is over.
+    splash_since: Option<Instant>,
+    splash_done: bool,
 }
+
+/// Multiplies every pixel of `area` by `pct` percent (night dimming).
+fn dim_area(fb: &mut Framebuffer, area: (u32, u32, u32, u32), pct: u32) {
+    let lut: Vec<u8> = (0..256u32).map(|v| (v * pct / 100) as u8).collect();
+    let fw = fb.width();
+    let rows = area.1..(area.1 + area.3).min(fb.height());
+    let (x0, x1) = (area.0 as usize * 3, (area.0 + area.2).min(fw) as usize * 3);
+    let bytes = fb.as_bytes_mut();
+    for y in rows {
+        let row = &mut bytes[y as usize * fw as usize * 3..(y as usize + 1) * fw as usize * 3];
+        for b in &mut row[x0..x1] {
+            *b = lut[*b as usize];
+        }
+    }
+}
+
+fn blend_rect(fb: &mut Framebuffer, x: u32, y: u32, w: u32, h: u32, c: Rgb, a: u8) {
+    let fw = fb.width();
+    let fh = fb.height();
+    let bytes = fb.as_bytes_mut();
+    let a = a as u32;
+    for yy in y..(y + h).min(fh) {
+        for xx in x..(x + w).min(fw) {
+            let i = ((yy * fw + xx) * 3) as usize;
+            for (ch, src) in [c.0, c.1, c.2].into_iter().enumerate() {
+                bytes[i + ch] = ((bytes[i + ch] as u32 * (255 - a) + src as u32 * a) / 255) as u8;
+            }
+        }
+    }
+}
+
+/// How long the start-up logo stays on screen.
+const SPLASH_SECS: f32 = 2.4;
 
 /// How long the new-song pop-up stays on screen.
 const SONG_SECS: f32 = 3.2;
@@ -396,17 +652,44 @@ impl ProScreen {
             last_song: None,
             song_init: false,
             song_since: None,
+            fps: VecDeque::new(),
+            fps_samples: Vec::new(),
+            peak_cpu: 0.0,
+            peak_gpu: 0.0,
+            session_start: Instant::now(),
+            game_since: None,
+            fps_last: None,
+            alert_cpu: false,
+            alert_gpu: false,
+            alert_temps: (None, None),
+            alert_since: Instant::now(),
+            splash_since: None,
+            splash_done: false,
         }
     }
 
     /// Fills the graphs with plausible values (preview only).
     pub fn seed_demo_history(&mut self) {
+        // previews show the dashboard, not the start-up logo (TROFEO_SPLASH_PREVIEW shows it)
+        self.splash_done = std::env::var_os("TROFEO_SPLASH_PREVIEW").is_none();
+        if !self.splash_done {
+            self.splash_since = Instant::now().checked_sub(std::time::Duration::from_secs(1));
+        }
         for i in 0..HIST {
             let t = i as f32;
             self.cpu.push_back((22.0 + 14.0 * (t / 9.0).sin() + 9.0 * (t / 3.7).cos()).clamp(2.0, 100.0));
             self.gpu.push_back((40.0 + 25.0 * (t / 13.0).sin() + 8.0 * (t / 2.9).sin()).clamp(2.0, 100.0));
             self.net.push_back((700.0 + 600.0 * (t / 6.0).sin().max(0.0) + 150.0 * (t / 2.3).cos()).max(0.0));
         }
+        for i in 0..HIST {
+            let t = i as f32;
+            self.fps.push_back((138.0 + 14.0 * (t / 7.0).sin() + 9.0 * (t / 2.3).cos() - if i % 37 == 0 { 38.0 } else { 0.0 }).max(30.0));
+        }
+        self.fps_samples = self.fps.iter().copied().collect();
+        self.peak_cpu = 74.0;
+        self.peak_gpu = 71.0;
+        self.session_start = Instant::now().checked_sub(std::time::Duration::from_secs(47 * 60 + 12)).unwrap_or_else(Instant::now);
+        self.game_since = Some(Instant::now().checked_sub(std::time::Duration::from_secs(60)).unwrap_or_else(Instant::now));
         self.hist_ver += 1;
         self.last_push = Some(Instant::now());
     }
@@ -416,13 +699,130 @@ impl ProScreen {
             return;
         }
         self.last_push = Some(Instant::now());
-        for (q, v) in [(&mut self.cpu, d.cpu_pct), (&mut self.gpu, d.gpu_pct.unwrap_or(0.0)), (&mut self.net, d.net_kb.0 as f32)] {
+        let fps = d.gpu.fps.filter(|f| *f > 0).map_or(0.0, |f| f as f32);
+        for (q, v) in [(&mut self.cpu, d.cpu_pct), (&mut self.gpu, d.gpu_pct.unwrap_or(0.0)), (&mut self.net, d.net_kb.0 as f32), (&mut self.fps, fps)] {
             q.push_back(v);
             while q.len() > HIST {
                 q.pop_front();
             }
         }
+        if fps > 0.0 {
+            self.fps_samples.push(fps);
+            if self.fps_samples.len() > 7200 {
+                self.fps_samples.remove(0);
+            }
+        }
+        self.peak_cpu = self.peak_cpu.max(d.cpu_temp.unwrap_or(0.0));
+        self.peak_gpu = self.peak_gpu.max(d.gpu.temp_edge_c.map_or(0.0, |t| t as f32));
         self.hist_ver += 1;
+    }
+
+    /// Tracks whether a game is running (FPS reported for 3 s, released after 10 s without).
+    /// A new session starts the statistics from zero.
+    fn update_game(&mut self, d: &Data) -> bool {
+        let live = d.gpu.fps.is_some_and(|f| f > 0);
+        if live {
+            self.fps_last = Some(Instant::now());
+            if self.game_since.is_none() {
+                self.game_since = Some(Instant::now());
+                self.fps_samples.clear();
+                self.peak_cpu = 0.0;
+                self.peak_gpu = 0.0;
+                self.session_start = Instant::now();
+            }
+        } else if self.fps_last.is_some_and(|t| t.elapsed().as_secs() >= 10) {
+            self.game_since = None;
+            self.fps_last = None;
+        }
+        self.game_since.is_some_and(|t| t.elapsed().as_secs() >= 3)
+    }
+
+    fn session_stats(&self, gaming: bool) -> SessionStats {
+        let mut v = self.fps_samples.clone();
+        let n = v.len();
+        let (avg, max) = if n == 0 { (0.0, 0.0) } else { (v.iter().sum::<f32>() / n as f32, v.iter().cloned().fold(0.0, f32::max)) };
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let k = (n / 100).max(1).min(n.max(1));
+        let low1 = if n == 0 { 0.0 } else { v[..k].iter().sum::<f32>() / k as f32 };
+        SessionStats { fps: self.fps.iter().copied().collect(), avg, max, low1, peak_cpu: self.peak_cpu, peak_gpu: self.peak_gpu, secs: self.session_start.elapsed().as_secs(), gaming }
+    }
+
+    /// Hot-temperature alerts with 3 °C of hysteresis.
+    fn update_alerts(&mut self, d: &Data, s: &Settings) {
+        let cpu = d.cpu_temp;
+        let gpu = d.gpu.temp_edge_c.map(|t| t as f32);
+        let st = |on: bool, t: Option<f32>, limit: u32| -> bool {
+            match (limit, t) {
+                (0, _) | (_, None) => false,
+                (l, Some(t)) => {
+                    if on {
+                        t >= l as f32 - 3.0
+                    } else {
+                        t >= l as f32
+                    }
+                }
+            }
+        };
+        let (c, g) = (st(self.alert_cpu, cpu, s.alert_cpu), st(self.alert_gpu, gpu, s.alert_gpu));
+        if (c || g) && !(self.alert_cpu || self.alert_gpu) {
+            self.alert_since = Instant::now();
+        }
+        self.alert_cpu = c;
+        self.alert_gpu = g;
+        self.alert_temps = (cpu, gpu);
+    }
+
+    fn alert_active(&self) -> bool {
+        self.alert_cpu || self.alert_gpu
+    }
+
+    /// Pulsing red frame around the screen and a pill with the hot reading(s).
+    fn paint_alert(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32)) {
+        if !self.alert_active() {
+            return;
+        }
+        let t = self.alert_since.elapsed().as_secs_f32();
+        let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU / 1.1).sin();
+        let a = (60.0 + 170.0 * pulse) as u8;
+        let b = ((area.2.min(area.3) as f32 / 462.0).max(0.6) * 7.0).round().max(3.0) as u32;
+        let (x, y, w, h) = area;
+        for (rx, ry, rw, rh) in [(x, y, w, b), (x, y + h - b, w, b), (x, y + b, b, h - 2 * b), (x + w - b, y + b, b, h - 2 * b)] {
+            blend_rect(fb, rx, ry, rw, rh, HOT, a);
+        }
+        let mut parts = Vec::new();
+        if self.alert_cpu {
+            parts.push(format!("CPU {:.0}°C", self.alert_temps.0.unwrap_or(0.0)));
+        }
+        if self.alert_gpu {
+            parts.push(format!("GPU {:.0}°C", self.alert_temps.1.unwrap_or(0.0)));
+        }
+        let txt = format!("HOT  ·  {}", parts.join("  ·  "));
+        let k = (area.3 as f32 / 462.0).min(area.2 as f32 / 1920.0 * 1.15).clamp(0.5, 2.0) * if self.portrait { 0.6 } else { 1.0 };
+        let cap = 22.0 * k;
+        let (tw, h_) = (crate::smooth_font::text_width(&txt, crate::smooth_font::px_for_cap(cap), crate::smooth_font::Weight::Medium), (48.0 * k).round());
+        let w_ = (tw + 56.0 * k).round();
+        if self.osd.w != w_ as usize || self.osd.h != h_ as usize {
+            self.osd = Layer::new(w_ as u32, h_ as u32);
+        } else {
+            self.osd.clear();
+        }
+        let mut p = Painter { layer: &mut self.osd, font: FontStyle::Smooth };
+        let c = lerp_rgb(HOT, (120, 10, 10), 0.45 * (1.0 - pulse));
+        p.layer.fill_rrect((0.0, 0.0, w_, h_), h_ / 2.0, &move |_| c, 245);
+        p.text(28.0 * k, h_ / 2.0 + cap / 2.0, &txt, cap, W::Medium, WHITE, 255);
+        // top edge of the screen (the side that is "up" when the panel is turned)
+        let (aw, ah) = (area.2 as f32, area.3 as f32);
+        let margin = (b as f32 + 10.0 * k).round() as u32;
+        if self.portrait {
+            let mut rot = Layer::new(self.osd.h as u32, self.osd.w as u32);
+            self.osd.rotate_into(&mut rot, self.rotate_ccw);
+            let ox = if self.rotate_ccw { area.0 + margin } else { area.0 + (aw as u32).saturating_sub(rot.w as u32 + margin) };
+            let oy = area.1 + ((ah - rot.h as f32) / 2.0).max(0.0) as u32;
+            rot.composite_onto(fb, ox, oy);
+        } else {
+            let ox = area.0 + ((aw - self.osd.w as f32) / 2.0).max(0.0) as u32;
+            self.osd.composite_onto(fb, ox, area.1 + margin);
+        }
     }
 
     fn update_cover(&mut self, d: &Data) {
@@ -444,9 +844,31 @@ impl ProScreen {
     /// Paints the screen on `fb`; `area` = the part of `fb` the interface may use.
     pub fn draw(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32), d: &Data) {
         let settings = opts().pro;
-        let (mut theme, layout) = pick(&settings);
+        CLOCK_12H.store(settings.clock12, std::sync::atomic::Ordering::Relaxed);
+        let now = Local::now();
+        let (mut theme, mut layout) = pick(&settings);
         self.push_history(d);
         self.update_cover(d);
+        let gaming = self.update_game(d);
+        self.update_alerts(d, &settings);
+        let night = settings.night.is_some_and(|(a, b)| {
+            let m = now.hour() * 60 + now.minute();
+            if a <= b { m >= a && m < b } else { m >= a || m < b }
+        });
+        if night {
+            if let Some(t) = settings.night_theme {
+                theme = t;
+            }
+        }
+        if gaming {
+            if let Some(l) = settings.game_layout {
+                layout = l;
+            }
+            if let Some(t) = settings.game_theme {
+                theme = t;
+            }
+        }
+        crate::smooth_font::set_family(if layout.clean() { crate::smooth_font::Family::Inter } else { crate::smooth_font::Family::Chakra });
         if settings.cover_color {
             if let Some(c) = self.cover.as_ref() {
                 let pair = |c: Rgb| [c, lerp_rgb(c, WHITE, 0.45)];
@@ -468,7 +890,6 @@ impl ProScreen {
             self.last_song = Some(k);
         }
         self.song_init = true;
-        let now = Local::now();
         let progress = d.track.and_then(|t| t.timeline).map(|tl| (tl.position_now_ms() / 1000, tl.duration_ms / 1000));
         let sig = format!(
             "{:?}{:?}{:?}|{area:?}|{:?}|{}|{}|{:.0}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:.1}{:.1}|{:.0}{:.0}|{:?}|{}|{:?}|{:?}|{}",
@@ -496,7 +917,7 @@ impl ProScreen {
             d.track.map(|t| (t.title.clone(), t.artist.clone())),
             progress,
             self.hist_ver,
-        );
+        ) + &format!("|{}", settings.clock12);
         let portrait = layout.portrait();
         if sig != self.sig {
             let (w, h) = (area.2, area.3);
@@ -513,6 +934,8 @@ impl ProScreen {
                     self.canvas.clear();
                 }
             }
+            let stats = self.session_stats(gaming);
+            STATS.with(|s| *s.borrow_mut() = stats);
             let cover = self.cover.as_ref();
             let hist = (&self.cpu, &self.gpu, &self.net);
             let target_layer: &mut Layer = if portrait { &mut self.canvas } else { &mut self.layer };
@@ -547,11 +970,74 @@ impl ProScreen {
         for m in &self.marquees {
             paint_marquee(fb, area.0, area.1, m, self.marquee_k, t);
         }
+        if night && settings.night_dim < 100 {
+            dim_area(fb, area, settings.night_dim);
+        }
+        self.paint_alert(fb, area);
         if self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS) {
             self.paint_volume_osd(fb, area);
         } else {
             self.paint_song_osd(fb, area, d);
         }
+        self.paint_splash(fb, area);
+        crate::smooth_font::set_family(crate::smooth_font::Family::Chakra);
+    }
+
+    /// The HuyBruh Dash logo for a moment when the display starts.
+    fn paint_splash(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32)) {
+        if self.splash_done || self.portrait {
+            self.splash_done = true;
+            return;
+        }
+        let since = *self.splash_since.get_or_insert_with(Instant::now);
+        let t = since.elapsed().as_secs_f32();
+        if t >= SPLASH_SECS {
+            self.splash_done = true;
+            return;
+        }
+        crate::smooth_font::set_family(crate::smooth_font::Family::Inter);
+        let (aw, ah) = (area.2, area.3);
+        let mut layer = Layer::new(aw, ah);
+        let (w, h) = (aw as f32, ah as f32);
+        let k = (h / 462.0).min(w / 1920.0 * 1.15).clamp(0.5, 2.0);
+        let mut p = Painter { layer: &mut layer, font: FontStyle::Smooth };
+        p.layer.fill_rrect_solid((0.0, 0.0, w, h), 0.0, (0, 0, 0), 255);
+        // the logo fades in, then everything fades out at the end
+        let a_in = (t / 0.5).clamp(0.0, 1.0);
+        let a_out = ((SPLASH_SECS - t) / 0.45).clamp(0.0, 1.0);
+        let a = (255.0 * a_in * a_out) as u8;
+        let mark = 96.0 * k;
+        let name = "HuyBruh Dash";
+        let ncap = 44.0 * k;
+        let sub = "for Thermalright Trofeo Vision";
+        let scap = 15.0 * k;
+        let nw = p.width(name, ncap, W::Medium);
+        let total = mark + 34.0 * k + nw;
+        let x0 = ((w - total) / 2.0).round();
+        let cy = h / 2.0;
+        let colors = [(124, 92, 255), (34, 211, 238)];
+        p.layer.fill_rrect((x0, cy - mark / 2.0, mark, mark), 24.0 * k, &move |tt| gradient_at(&colors, tt), a);
+        let hb = "HB";
+        let hcap = 38.0 * k;
+        let hw = p.width(hb, hcap, W::Medium);
+        p.text(x0 + (mark - hw) / 2.0, cy + hcap / 2.0, hb, hcap, W::Medium, WHITE, a);
+        let tx = x0 + mark + 34.0 * k;
+        p.text(tx, cy + 4.0 * k, name, ncap, W::Medium, WHITE, a);
+        p.text(tx, cy + 4.0 * k + 18.0 * k + scap, sub, scap, W::Regular, (150, 155, 166), a);
+        if a_out < 1.0 {
+            // fade the black too, revealing the dashboard
+            let fade = (255.0 * a_out) as u8;
+            let mut out = Layer::new(aw, ah);
+            out.fill_rrect_solid((0.0, 0.0, w, h), 0.0, (0, 0, 0), fade);
+            out.composite_onto(fb, area.0, area.1);
+            layer.clear();
+            let mut p = Painter { layer: &mut layer, font: FontStyle::Smooth };
+            p.layer.fill_rrect((x0, cy - mark / 2.0, mark, mark), 24.0 * k, &move |tt| gradient_at(&colors, tt), a);
+            p.text(x0 + (mark - hw) / 2.0, cy + hcap / 2.0, hb, hcap, W::Medium, WHITE, a);
+            p.text(tx, cy + 4.0 * k, name, ncap, W::Medium, WHITE, a);
+            p.text(tx, cy + 4.0 * k + 18.0 * k + scap, sub, scap, W::Regular, (150, 155, 166), a);
+        }
+        layer.composite_onto(fb, area.0, area.1);
     }
 
     /// Preview only: show the new-song pop-up as if the song just changed.
@@ -645,7 +1131,7 @@ impl ProScreen {
 
     /// True while the volume pop-up is on screen (the main loop then draws smooth frames).
     pub fn osd_active(&self) -> bool {
-        self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS) || self.song_osd_active()
+        self.vol_since.is_some_and(|t| t.elapsed().as_secs_f32() < OSD_SECS) || self.song_osd_active() || self.alert_active() || !self.splash_done
     }
 
     /// A clean pill in the middle of the screen: speaker, level bar, percent.
@@ -1082,7 +1568,7 @@ fn draw_time(p: &mut Painter, r: R, sc: &Scale, d: &Data, now: &chrono::DateTime
     let date_base = wb + 14.0 * k + sc.m;
     p.text(x + pd, date_base, &date, dcap, W::Regular, th().text, 255);
     // the clock
-    let t = now.format("%H:%M").to_string();
+    let t = clock_parts(now).0;
     let tcap = p.fit(&t, sc.xl * 1.25, inner, W::Light);
     let tw = p.width(&t, tcap, W::Light);
     let tbase = date_base + 28.0 * k + tcap;
@@ -1914,8 +2400,12 @@ fn now_playing_compact(p: &mut Painter, r: R, sc: &Scale, d: &Data, cover: Optio
 }
 
 fn clock_parts(now: &chrono::DateTime<Local>) -> (String, String, String) {
-    let t = now.format("%H:%M").to_string();
-    let wd = i18n::weekday(now).to_uppercase();
+    let twelve = CLOCK_12H.load(std::sync::atomic::Ordering::Relaxed);
+    let t = now.format(if twelve { "%I:%M" } else { "%H:%M" }).to_string();
+    let mut wd = i18n::weekday(now).to_uppercase();
+    if twelve {
+        wd = format!("{wd} {}", if now.hour() < 12 { "AM" } else { "PM" });
+    }
     let date = crate::tiles::nice_case(&i18n::day_month_year(now));
     (t, wd, date)
 }
@@ -2126,7 +2616,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     let k = sc.k;
     let m = 24.0 * k;
     let gap = 36.0 * k;
-    let weights = [452.0f32, 482.0, 452.0, 386.0];
+    let weights = [386.0f32, 452.0, 482.0, 452.0];
     let avail = w - 2.0 * m - gap * 3.0;
     let sum: f32 = weights.iter().sum();
     let mut xs = Vec::new();
@@ -2142,7 +2632,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     let r = |i: usize| (xs[i].0, m, xs[i].1, h - 2.0 * m);
     // one value size for every stat of the three sections (the widest values must fit)
     let mut vcap = 60.0 * k;
-    for (i, tpl) in [(0, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (1, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (2, [("47.9", "GB"), ("12.4", "MB/s"), ("850", "KB/s")])] {
+    for (i, tpl) in [(1, [("4.35", "GHz"), ("1480", "RPM"), ("23:59", "h")]), (2, [("2491", "MHz"), ("1480", "RPM"), ("16.0", "GB")]), (3, [("47.9", "GB"), ("12.4", "MB/s"), ("850", "KB/s")])] {
         for (v, u) in tpl {
             vcap = vcap.min(fit_vu(p, v, u, 60.0 * k, xs[i].1 / 2.0 - 10.0 * k, W::Medium));
         }
@@ -2168,7 +2658,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         (format!("{dn:.0}/{up:.0}"), "KB/s")
     };
     cpu_stats.push(("DOWN / UP", nv, nu.to_string(), th().text));
-    focus_section(p, r(0), sc, vcap, false, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
+    focus_section(p, r(1), sc, vcap, false, th().cpu, "CPU TEMPERATURE", &tv, "\u{b0}C", tc, "", &cpu_stats, Some((hist.0, 100.0)));
     // GPU: FPS has its own cell, it never replaces another value
     let g = d.gpu;
     let (gt, gtc) = tval(g.temp_edge_c.map(|v| v as f32), 80.0, 90.0);
@@ -2185,7 +2675,7 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
             None => ("FPS", "--".to_string(), String::new(), th().dim),
         },
     ];
-    focus_section(p, r(1), sc, vcap, false, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
+    focus_section(p, r(2), sc, vcap, false, th().gpu, "GPU TEMPERATURE", &gt, "\u{b0}C", gtc, &side, &gpu_stats, Some((hist.1, 100.0)));
     // memory + storage + network
     let ram_pct = if d.ram_total_mb > 0 { d.ram_used_mb as f32 * 100.0 / d.ram_total_mb as f32 } else { 0.0 };
     let (rv, ru) = rate(d.disk_rate.0 * 1024.0);
@@ -2199,9 +2689,9 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
         ("WRITE", wv, wu.to_string(), th().text),
     ];
     let side = format!("of {} GB", gb(d.ram_total_mb));
-    focus_section(p, r(2), sc, vcap, false, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
+    focus_section(p, r(3), sc, vcap, false, th().ram, "MEMORY", &format!("{ram_pct:.0}"), "%", th().text, &side, &mem_stats, Some((hist.2, hist.2.iter().cloned().fold(256.0f32, f32::max) * 1.1)));
     // time + weather + now playing
-    let (x, y, sw, sh) = r(3);
+    let (x, y, sw, sh) = r(0);
     let (t, wd, date) = clock_parts(now);
     spaced(p, x, y + sc.s, &format!("{wd}  \u{b7}  {}", date.to_uppercase()), sc.s, W::Medium, th().muted, 2.0 * k);
     let hcap = 108.0 * k;

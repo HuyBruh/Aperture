@@ -46,6 +46,32 @@ mod imp {
     /// Official PawnIO module for AMD Family 17h–1Ah, embedded at compile time.
     /// Downloaded from the `AMDFamily17.bin` release in the PawnIO.Modules repo.
     pub(super) static AMD_MODULE: &[u8] = include_bytes!("resources/AMDFamily17.bin");
+    /// Official PawnIO module for Intel MSRs (temperature, RAPL energy), from the same
+    /// PawnIO.Modules release (LGPL-2.1-or-later).
+    pub(super) static INTEL_MODULE: &[u8] = include_bytes!("resources/IntelMSR.bin");
+
+    /// Intel MSRs: package thermal status (bits 22:16 = degrees below TjMax), TjMax
+    /// (bits 23:16 of TEMPERATURE_TARGET), RAPL power unit and package energy counter.
+    pub(super) const MSR_IA32_PACKAGE_THERM_STATUS: u64 = 0x1B1;
+    pub(super) const MSR_IA32_TEMPERATURE_TARGET: u64 = 0x1A2;
+    pub(super) const MSR_RAPL_POWER_UNIT: u64 = 0x606;
+    pub(super) const MSR_PKG_ENERGY_STATUS: u64 = 0x611;
+
+    /// "GenuineIntel"?
+    pub(super) fn is_intel() -> bool {
+        #[cfg(target_arch = "x86_64")]
+        {
+            #[allow(unused_unsafe)]
+            let r = unsafe { std::arch::x86_64::__cpuid(0) };
+            let mut v = Vec::with_capacity(12);
+            for x in [r.ebx, r.edx, r.ecx] {
+                v.extend_from_slice(&x.to_le_bytes());
+            }
+            return &v[..] == b"GenuineIntel";
+        }
+        #[allow(unreachable_code)]
+        false
+    }
 
     // --- Register addresses ---
 
@@ -287,6 +313,8 @@ mod imp {
 struct Inner {
     pawnio: crate::pawnio::PawnIo,
     energy_unit_joules: Option<f64>,
+    /// Intel CPU: TjMax in °C (temperature = TjMax - distance read from the MSR).
+    intel_tjmax: Option<f32>,
 }
 
 /// Internal Linux state: sysfs paths already discovered once in `new()`
@@ -320,20 +348,38 @@ impl CpuSensor {
         #[cfg(windows)]
         {
             use crate::pawnio::PawnIo;
-            use imp::{AMD_MODULE, read_energy_unit};
+            use imp::{AMD_MODULE, INTEL_MODULE, read_energy_unit};
+
+            if imp::is_intel() {
+                let pawnio = PawnIo::open_with_module(INTEL_MODULE);
+                if pawnio.is_none() {
+                    eprintln!(
+                        "WARNING: Intel CPU temperature/power are unavailable: the PawnIO driver is \
+                         not installed (winget install namazso.PawnIO) or the program is not running \
+                         as Administrator. HWiNFO or LibreHardwareMonitor can supply the temperature."
+                    );
+                }
+                let inner = pawnio.map(|pw| {
+                    let msr = |m: u64| pw.execute("ioctl_read_msr", &[m], 1).and_then(|v| v.first().copied());
+                    let tj = msr(imp::MSR_IA32_TEMPERATURE_TARGET).map(|v| ((v >> 16) & 0xFF) as f32).filter(|t| *t >= 70.0 && *t <= 125.0).unwrap_or(100.0);
+                    let unit = msr(imp::MSR_RAPL_POWER_UNIT).map(|v| 0.5_f64.powi(((v >> 8) & 0x1F) as i32));
+                    Inner { pawnio: pw, energy_unit_joules: unit, intel_tjmax: Some(tj) }
+                });
+                return CpuSensor { inner };
+            }
 
             let pawnio = PawnIo::open_with_module(AMD_MODULE);
             if pawnio.is_none() {
                 eprintln!(
                     "WARNING: CPU temperature/power sensors are unavailable. \
                      Make sure:\n  1. The PawnIO driver is installed: winget install namazso.PawnIO\n  \
-                     2. The CPU is an AMD Ryzen (Zen1-Zen4 / Family 17h-1Ah)\n  \
-                     The info row will show N/A for temperature & power."
+                     2. The CPU is an AMD Ryzen (Zen1-Zen5 / Family 17h-1Ah) or an Intel Core\n  \
+                     HWiNFO or LibreHardwareMonitor can supply the temperature instead."
                 );
             }
             let energy_unit_joules = pawnio.as_ref().and_then(read_energy_unit);
             return CpuSensor {
-                inner: pawnio.map(|pw| Inner { pawnio: pw, energy_unit_joules }),
+                inner: pawnio.map(|pw| Inner { pawnio: pw, energy_unit_joules, intel_tjmax: None }),
             };
         }
 
@@ -407,6 +453,13 @@ impl CpuSensor {
         {
             use imp::{MutexGuard, SMN_THM_TCON_CUR_TMP};
             let inner = self.inner.as_ref()?;
+            if let Some(tj) = inner.intel_tjmax {
+                let v = inner.pawnio.execute("ioctl_read_msr", &[imp::MSR_IA32_PACKAGE_THERM_STATUS], 1)?.first().copied()?;
+                if v & 0x8000_0000 == 0 {
+                    return None; // reading not valid
+                }
+                return Some((tj - ((v >> 16) & 0x7F) as f32).max(0.0));
+            }
             let _guard = MutexGuard::acquire_pci();
             let raw = inner
                 .pawnio
@@ -462,9 +515,10 @@ impl CpuSensor {
         {
             use imp::MSR_PKG_ENERGY_STAT;
             if let Some(inner) = &self.inner {
+                let msr = if inner.intel_tjmax.is_some() { imp::MSR_PKG_ENERGY_STATUS } else { MSR_PKG_ENERGY_STAT };
                 return inner
                     .pawnio
-                    .execute("ioctl_read_msr", &[MSR_PKG_ENERGY_STAT], 1)
+                    .execute("ioctl_read_msr", &[msr], 1)
                     .and_then(|v| v.first().copied())
                     .unwrap_or(0)
                     & 0xFFFF_FFFF;
