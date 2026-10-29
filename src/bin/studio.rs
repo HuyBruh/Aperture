@@ -126,6 +126,10 @@ struct LayoutInfo {
 
 const LAYOUTS: &[LayoutInfo] = &[
     LayoutInfo { key: "focus", name: "Focus", en: "Huge numbers, nothing else", vi: "Số cực lớn, tối giản", portrait: false },
+    LayoutInfo { key: "pulse", name: "Pulse", en: "Living temperature waves behind big numbers", vi: "Sóng nhiệt độ chạy sau các số lớn", portrait: false },
+    LayoutInfo { key: "ambient", name: "Ambient", en: "The album cover lights the whole screen", vi: "Ảnh bìa bài hát phủ màu cả màn hình", portrait: false },
+    LayoutInfo { key: "poster", name: "Poster", en: "One giant number, magazine style", vi: "Một con số khổng lồ, kiểu poster tạp chí", portrait: false },
+    LayoutInfo { key: "horizon", name: "Horizon", en: "The day as a sky, sun on a 24 h track", vi: "Bầu trời theo giờ, mặt trời chạy theo ngày", portrait: false },
     LayoutInfo { key: "studio", name: "Studio", en: "Four equal columns, hairline grid", vi: "Bốn cột đều nhau, đường kẻ mảnh", portrait: false },
     LayoutInfo { key: "grid", name: "Grid", en: "Even tiles like phone widgets", vi: "Ô đều nhau như widget điện thoại", portrait: false },
     LayoutInfo { key: "line", name: "Line", en: "One calm row with trend lines", vi: "Một hàng gọn, có đường xu hướng", portrait: false },

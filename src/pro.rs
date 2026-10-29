@@ -152,11 +152,19 @@ pub enum Layout {
     Glance,
     /// Clean: light mode.
     Daylight,
+    /// Creative: temperature waves fill the screen.
+    Pulse,
+    /// Creative: the album cover lights the room.
+    Ambient,
+    /// Creative: one huge number, magazine poster.
+    Poster,
+    /// Creative: the day as a sky with the sun on a 24 h track.
+    Horizon,
 }
 
 impl Layout {
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 16] = [Layout::Focus, Layout::Studio, Layout::Grid, Layout::Line, Layout::Split, Layout::Meter, Layout::Glance, Layout::Daylight, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 20] = [Layout::Focus, Layout::Pulse, Layout::Ambient, Layout::Poster, Layout::Horizon, Layout::Studio, Layout::Grid, Layout::Line, Layout::Split, Layout::Meter, Layout::Glance, Layout::Daylight, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
@@ -182,11 +190,15 @@ impl Layout {
             Layout::Meter => "meter",
             Layout::Glance => "glance",
             Layout::Daylight => "daylight",
+            Layout::Pulse => "pulse",
+            Layout::Ambient => "ambient",
+            Layout::Poster => "poster",
+            Layout::Horizon => "horizon",
         }
     }
     /// The clean collection, drawn with Inter.
     pub fn clean(self) -> bool {
-        matches!(self, Layout::Studio | Layout::Grid | Layout::Line | Layout::Split | Layout::Meter | Layout::Glance | Layout::Daylight)
+        matches!(self, Layout::Studio | Layout::Grid | Layout::Line | Layout::Split | Layout::Meter | Layout::Glance | Layout::Daylight | Layout::Pulse | Layout::Ambient | Layout::Poster | Layout::Horizon)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {

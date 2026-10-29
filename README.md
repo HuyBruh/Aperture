@@ -5,14 +5,14 @@
 # HuyBruh Dash
 
 **A clean, fast system dashboard for the Thermalright Trofeo Vision 9.16″ LCD.**<br>
-21 layouts · a friendly settings app (English / Tiếng Việt) · CPU / GPU / RAM / SSD / network · FPS · weather · now playing
+25 layouts · a friendly settings app (English / Tiếng Việt) · CPU / GPU / RAM / SSD / network · FPS · weather · now playing
 
 [![Release](https://img.shields.io/github/v/release/HuyBruh/trofeo-lcd-rs?include_prereleases&style=flat-square&color=7c5cff)](../../releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--or--later-3dd9d6?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-444?style=flat-square)](#install)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-dea584?style=flat-square)](https://www.rust-lang.org/)
 
-[**Download**](../../releases/latest) · [What's new](#whats-new-in-30) · [Layouts](#layouts) · [The app](#the-app) · [Install](#install) · [FAQ](#faq)
+[**Download**](../../releases/latest) · [What's new](#whats-new) · [Layouts](#layouts) · [The app](#the-app) · [Install](#install) · [FAQ](#faq)
 
 </div>
 
@@ -34,7 +34,18 @@ Every layout shows:
 - memory, SSD temperature, disk usage and read / write speed
 - the song playing, with its cover, elapsed / total time and progress
 
-## What's new in 3.0
+## What's new
+
+### 3.1: the creative collection
+
+Four more expressive layouts, still with the full set of readings and large text:
+
+- **Pulse:** the CPU and GPU temperature history runs as soft waves behind the big numbers.
+- **Ambient:** the album cover colors the whole screen, with a large cover and the readings on a frosted glass panel. With no music, the background is a gradient of your theme.
+- **Poster:** the CPU temperature as one giant number running off the edge, magazine style.
+- **Horizon:** the sky changes with the time of day, and the sun or moon moves along a 24-hour track.
+
+### 3.0
 
 - **The clean collection.** Seven new minimal layouts: Studio, Grid, Line, Split, Meter, Glance and Daylight. They use the Inter typeface on a strict grid, with even spacing and the same large sizes as Focus.
 - **The HuyBruh Dash app replaces the console menus.**
@@ -77,6 +88,15 @@ Memory use is roughly 24-35 MB. Even the busiest layout stays under 1% of the wh
 The clean collection (3.0) draws the same way and has not been measured separately yet.
 
 ## Layouts
+
+### The creative collection
+
+<img src="docs/img/creative-collection.png" alt="Pulse, Ambient, Poster, Horizon" width="100%">
+
+<table>
+<tr><td align="center" width="50%"><img src="docs/img/pulse.png"><br><b>Pulse</b><br><sub>temperature waves behind the big numbers</sub></td><td align="center" width="50%"><img src="docs/img/ambient.png"><br><b>Ambient</b><br><sub>the album cover lights the screen</sub></td></tr>
+<tr><td align="center"><img src="docs/img/poster.png"><br><b>Poster</b><br><sub>one giant number, magazine style</sub></td><td align="center"><img src="docs/img/horizon.png"><br><b>Horizon</b><br><sub>the day as a sky, sun on a 24 h track</sub></td></tr>
+</table>
 
 ### The clean collection
 
@@ -171,7 +191,7 @@ Everything the app changes lives in `trofeo.conf` next to the program and is re-
 
 ```ini
 layout       = pro
-pro_layout   = studio        # focus studio grid line split meter glance daylight swiss classic cockpit bento
+pro_layout   = studio        # focus pulse ambient poster horizon studio grid line split meter glance daylight swiss classic cockpit bento
                              # terminal chamfer rings dots | lock equalizer receipt synthwave blueprint | all
 pro_theme    = nzxt          # nzxt graphite crimson arctic ember neon all  or  #RRGGBB
 flip         = false         # true if the picture is upside down

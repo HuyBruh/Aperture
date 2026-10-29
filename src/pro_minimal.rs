@@ -949,6 +949,427 @@ fn daylight(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist:
     }
 }
 
+// =================================================================== CREATIVE
+//
+// Four more expressive designs that keep the same readings and Focus-size text:
+// pulse (living temperature waves), ambient (the album cover as the room light),
+// poster (one huge number, magazine style) and horizon (the day as a sky).
+
+/// Fills the whole canvas, one pixel at a time, from `f(x, y)`.
+fn fill_with(p: &mut Painter, w: f32, h: f32, f: &dyn Fn(f32, f32) -> Rgb) {
+    for y in 0..(h as i32) {
+        for x in 0..(w as i32) {
+            p.layer.over(x, y, f(x as f32, y as f32), 255);
+        }
+    }
+}
+
+/// Darkens the canvas towards the bottom so text stays readable over a picture.
+fn shade_down(p: &mut Painter, w: f32, y0: f32, y1: f32, max_a: u8) {
+    for y in (y0 as i32)..(y1 as i32) {
+        let t = ((y as f32 - y0) / (y1 - y0)).clamp(0.0, 1.0);
+        let a = (max_a as f32 * t * t) as u8;
+        if a > 0 {
+            for x in 0..(w as i32) {
+                p.layer.over(x, y, (0, 0, 0), a);
+            }
+        }
+    }
+}
+
+/// A big soft area chart across the screen (`lo..hi` mapped to the full height).
+fn wave(p: &mut Painter, r: R, hist: &VecDeque<f32>, lo: f32, hi: f32, c: [Rgb; 2], fill_a: f32, k: f32) {
+    let (x, y, w, h) = r;
+    let n = hist.len();
+    if n < 2 {
+        return;
+    }
+    let step = w / (HIST as f32 - 1.0);
+    let x0 = x + w - (n as f32 - 1.0) * step;
+    let val = |px: f32| -> f32 {
+        let f = ((px - x0) / step).clamp(0.0, n as f32 - 1.0);
+        let i = (f.floor() as usize).min(n - 2);
+        let t = f - i as f32;
+        // smooth step between samples
+        let t = t * t * (3.0 - 2.0 * t);
+        let v = hist[i] * (1.0 - t) + hist[i + 1] * t;
+        ((v - lo) / (hi - lo)).clamp(0.02, 1.0)
+    };
+    let bottom = y + h;
+    let mut prev: Option<(f32, f32)> = None;
+    for px in (x0.max(x) as i32)..((x + w) as i32) {
+        let fx = px as f32 + 0.5;
+        let ty = bottom - val(fx) * h;
+        let col = gradient_at(&c, ((fx - x) / w).clamp(0.0, 1.0));
+        let mut py = ty.floor() as i32;
+        while (py as f32) < bottom {
+            let fade = 1.0 - ((py as f32 - ty) / (bottom - ty + 1.0)).clamp(0.0, 1.0);
+            let a = (fill_a * (0.25 + 0.75 * fade)) as u8;
+            p.layer.over(px, py, col, a);
+            py += 1;
+        }
+        if let Some(pp) = prev {
+            capsule(p, pp, (fx, ty), 1.6 * k, col, 255);
+        }
+        prev = Some((fx, ty));
+    }
+    if let Some(pp) = prev {
+        circle(p, pp.0, pp.1, 5.0 * k, c[1], 255);
+        circle(p, pp.0, pp.1, 11.0 * k, c[1], 50);
+    }
+}
+
+// ------------------------------------------------------------------ PULSE
+
+fn pulse(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) {
+    let k = sc.k;
+    let ink = dark_ink();
+    rect(p, (0.0, 0.0, w, h), ink.bg, 255);
+    // the two temperature waves fill the whole screen, GPU behind CPU
+    let (nh, nmax) = net_hist(hist);
+    // the waves live behind the big numbers; the readings below sit on plain black
+    let band = (0.0, 36.0 * k, w, 168.0 * k);
+    wave(p, band, hist.1, 15.0, 100.0, th().gpu, 50.0, k);
+    wave(p, band, hist.0, 15.0, 100.0, th().cpu, 58.0, k);
+    let _ = (nh, nmax);
+    shade_down(p, w, 150.0 * k, 205.0 * k, 255);
+    rect(p, (0.0, (205.0 * k).floor(), w, h), ink.bg, 255);
+    let m = 24.0 * k;
+    let gap = 40.0 * k;
+    let right_w = 380.0 * k;
+    let sw = ((w - 2.0 * m - right_w - 3.0 * gap) / 3.0).floor();
+    let lcap = 13.5 * k;
+    let head = m + lcap;
+    let hcap = 120.0 * k;
+    let hb = head + 18.0 * k + hcap;
+    let top = hb + 24.0 * k;
+    let bottom = h - m;
+    for (si, s) in sections(d, v, hist).iter().enumerate() {
+        let x = m + si as f32 * (sw + gap);
+        sec_head(p, x, head, sw, s, lcap, &ink, k);
+        let cap = hero_fit(p, &s.hero, s.hero_unit, hcap, sw * 0.75);
+        hero(p, x, hb, &s.hero, s.hero_unit, cap, if s.hero_color == th().text { ink.text } else { s.hero_color }, ink.muted);
+        if !s.side.is_empty() {
+            text_r(p, x + sw, hb, &s.side, 17.0 * k, W::Regular, ink.muted);
+        }
+        cells_2x3(p, x, sw, top, bottom, s, 40.0 * k, &ink, k, false);
+    }
+    // right column: clock, weather, song
+    let rx = w - m - right_w;
+    hair_v(p, rx - gap / 2.0, m, h - m, &ink);
+    date_line(p, rx, head, v, lcap, ink.muted, k);
+    let ccap = p.fit(&v.hhmm, 96.0 * k, right_w, W::Light);
+    p.text(rx - ccap * 0.05, head + 18.0 * k + ccap, &v.hhmm, ccap, W::Light, ink.text, 255);
+    let wy = head + 18.0 * k + ccap + 24.0 * k;
+    wx_now(p, rx, wy, right_w, v, lcap, 30.0 * k, &ink, k);
+    wx_days(p, rx, wy + kv_h(lcap, 30.0 * k, k) + 16.0 * k, right_w, v, lcap, 26.0 * k, &ink, k);
+    let mh = 70.0 * k;
+    music(p, d, cover, (rx, h - m - mh, right_w, mh), 17.0 * k, &ink, k, false);
+}
+
+// ---------------------------------------------------------------- AMBIENT
+
+/// Background from the album cover: a very soft blow-up of its colors, dimmed.
+fn ambient_bg(p: &mut Painter, w: f32, h: f32, cover: Option<&Cover>) {
+    match cover {
+        Some(c) => {
+            // 6 x 6 averages, then bilinear between them = a huge blur
+            let n = 6usize;
+            let mut g = vec![(0.0f32, 0.0f32, 0.0f32); n * n];
+            let cs = c.size as usize;
+            for gy in 0..n {
+                for gx in 0..n {
+                    let (mut r, mut gg, mut b, mut cnt) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+                    for yy in (gy * cs / n)..((gy + 1) * cs / n) {
+                        for xx in (gx * cs / n)..((gx + 1) * cs / n) {
+                            let i = (yy * cs + xx) * 3;
+                            r += c.rgb[i] as f32;
+                            gg += c.rgb[i + 1] as f32;
+                            b += c.rgb[i + 2] as f32;
+                            cnt += 1.0;
+                        }
+                    }
+                    g[gy * n + gx] = (r / cnt.max(1.0), gg / cnt.max(1.0), b / cnt.max(1.0));
+                }
+            }
+            let at = |x: f32, y: f32| -> Rgb {
+                // the wide screen shows a horizontal band of the cover
+                let fx = (x / w) * (n as f32 - 1.0);
+                let fy = (0.25 + 0.5 * y / h) * (n as f32 - 1.0);
+                let (ix, iy) = ((fx.floor() as usize).min(n - 2), (fy.floor() as usize).min(n - 2));
+                let (tx, ty) = (fx - ix as f32, fy - iy as f32);
+                let (tx, ty) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
+                let a = g[iy * n + ix];
+                let b = g[iy * n + ix + 1];
+                let cc = g[(iy + 1) * n + ix];
+                let dd = g[(iy + 1) * n + ix + 1];
+                let mix = |a: f32, b: f32, c: f32, d: f32| (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty;
+                let dim = 0.42;
+                ((mix(a.0, b.0, cc.0, dd.0) * dim) as u8, (mix(a.1, b.1, cc.1, dd.1) * dim) as u8, (mix(a.2, b.2, cc.2, dd.2) * dim) as u8)
+            };
+            fill_with(p, w, h, &at);
+        }
+        None => {
+            let (a, b) = (lerp_rgb(th().cpu[0], (0, 0, 0), 0.72), lerp_rgb(th().gpu[0], (0, 0, 0), 0.78));
+            fill_with(p, w, h, &move |x, y| lerp_rgb(a, b, (x / w * 0.8 + y / h * 0.2).clamp(0.0, 1.0)));
+        }
+    }
+}
+
+fn ambient(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) {
+    let k = sc.k;
+    ambient_bg(p, w, h, cover);
+    let ink = Ink { bg: (0, 0, 0), text: (250, 250, 252), muted: (205, 208, 216), dim: (170, 174, 184), line: (WHITE, 40), card: WHITE };
+    let m = 24.0 * k;
+    let lcap = 13.5 * k;
+    // ---- left: the song, large
+    let cs = 300.0 * k;
+    let cy = ((h - cs) / 2.0).round();
+    p.layer.fill_rrect_solid((m + 6.0 * k, cy + 10.0 * k, cs, cs), 22.0 * k, (0, 0, 0), 70);
+    match (cover, d.track) {
+        (Some(c), _) => blit_cover(p, c, m, cy, cs, 20.0 * k),
+        _ => {
+            p.layer.fill_rrect((m, cy, cs, cs), 20.0 * k, &|t| lerp_rgb((60, 62, 76), (30, 31, 40), t), 255);
+            music_note(p, m + cs / 2.0, cy + cs / 2.0, cs * 0.3, ink.muted);
+        }
+    }
+    let tx = m + cs + 36.0 * k;
+    let tw = 520.0 * k;
+    date_line(p, tx, m + lcap, v, lcap, ink.muted, k);
+    let ccap = 76.0 * k;
+    p.text(tx - ccap * 0.05, m + lcap + 18.0 * k + ccap, &v.hhmm, ccap, W::Light, ink.text, 255);
+    match d.track {
+        Some(t) => {
+            let title = clean_title(&t.title);
+            let tcap = 34.0 * k;
+            let tb = cy + cs - 118.0 * k;
+            title_line(p, tx, tb, tw, &title, tcap, W::Medium, ink.text);
+            let art = ellipsize(p, &t.artist, 22.0 * k, W::Regular, tw);
+            p.text(tx, tb + 38.0 * k, &art, 22.0 * k, W::Regular, ink.muted, 255);
+            if let Some(tl) = t.timeline.filter(|tl| tl.duration_ms > 0) {
+                let f = (tl.position_now_ms() as f32 / tl.duration_ms as f32).clamp(0.0, 1.0);
+                let by = cy + cs - 6.0 * k;
+                bar(p, tx, by, tw, 6.0 * k, Some(f), [WHITE, WHITE], (WHITE, 50));
+                let (el, tot) = (mmss(tl.position_now_ms().min(tl.duration_ms) / 1000), mmss(tl.duration_ms / 1000));
+                p.text(tx, by - 14.0 * k, &el, 15.0 * k, W::Medium, ink.text, 255);
+                text_r(p, tx + tw, by - 14.0 * k, &tot, 15.0 * k, W::Regular, ink.muted);
+            }
+        }
+        None => {
+            p.text(tx, cy + cs - 70.0 * k, "Nothing playing", 34.0 * k, W::Medium, ink.muted, 255);
+        }
+    }
+    // ---- right: a frosted glass panel with the readings
+    let gx = tx + tw + 40.0 * k;
+    let gw = w - m - gx;
+    let gr = (gx, m, gw, h - 2.0 * m);
+    p.layer.fill_rrect_solid(gr, 26.0 * k, (255, 255, 255), 22);
+    p.layer.stroke_rrect(gr, 26.0 * k, 1.0, WHITE, 46);
+    let pd = 26.0 * k;
+    let ix = gx + pd;
+    let iw = gw - 2.0 * pd;
+    wx_now(p, ix, m + pd - 4.0 * k, iw * 0.42, v, 12.5 * k, 28.0 * k, &ink, k);
+    wx_days(p, ix + iw * 0.42, m + pd - 4.0 * k, iw * 0.58, v, 12.5 * k, 24.0 * k, &ink, k);
+    let sy = m + pd + kv_h(12.5 * k, 28.0 * k, k) + 22.0 * k;
+    hair_h(p, ix, ix + iw, sy - 12.0 * k, &ink);
+    let cgap = 28.0 * k;
+    let cw = ((iw - 2.0 * cgap) / 3.0).floor();
+    for (si, s) in sections(d, v, hist).iter().enumerate() {
+        let x = ix + si as f32 * (cw + cgap);
+        circle(p, x + 5.0 * k, sy + lcap * 0.5, 5.0 * k, s.colors[1], 255);
+        caps(p, x + 18.0 * k, sy + lcap, s.name, lcap, ink.muted, k);
+        let hcap = 60.0 * k;
+        let hb = sy + lcap + 14.0 * k + hcap;
+        let cap = hero_fit(p, &s.hero, s.hero_unit, hcap, cw);
+        hero(p, x, hb, &s.hero, s.hero_unit, cap, ink.text, ink.muted);
+        let top = hb + 20.0 * k;
+        let bottom = h - m - pd + 6.0 * k;
+        let vcap = 24.0 * k;
+        let lc = 12.0 * k;
+        let ch = kv_h(lc, vcap, k);
+        let rows = spread(top, bottom, ch, 3);
+        let cw2 = ((cw - 14.0 * k) / 2.0).floor();
+        for (ci, c) in s.cells.iter().enumerate() {
+            let (r, col) = (ci / 2, ci % 2);
+            let c2 = Cell { label: c.label, value: c.value.clone(), unit: c.unit.clone(), color: if c.color == th().fps { lerp_rgb(th().fps, WHITE, 0.3) } else { th().text }, frac: c.frac };
+            kv(p, x + col as f32 * (cw2 + 14.0 * k), rows[r], cw2, &c2, lc, vcap, &ink, k);
+        }
+    }
+}
+
+// ----------------------------------------------------------------- POSTER
+
+fn poster(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) {
+    let k = sc.k;
+    let ink = dark_ink();
+    rect(p, (0.0, 0.0, w, h), ink.bg, 255);
+    let m = 24.0 * k;
+    let lcap = 13.5 * k;
+    let secs = sections(d, v, hist);
+    // ---- the poster: the CPU temperature, so large it runs off the bottom edge
+    let pw = 760.0 * k;
+    let big = &secs[0];
+    let bcap = 430.0 * k;
+    let bc = if big.hero_color == th().text { lerp_rgb(th().cpu[0], WHITE, 0.25) } else { big.hero_color };
+    let bw = p.text(m - bcap * 0.06, h + 92.0 * k, &big.hero, bcap, W::Light, bc, 255);
+    caps(p, m, m + lcap, "CPU temperature", lcap, ink.muted, k);
+    p.text(m - bcap * 0.06 + bw + 6.0 * k, h + 92.0 * k - bcap + 56.0 * k, "\u{b0}C", 56.0 * k, W::Light, ink.muted, 255);
+    let dev = ellipsize(p, &big.device, lcap, W::Regular, pw - 300.0 * k);
+    p.text(m, m + lcap + 24.0 * k, &dev, lcap, W::Regular, ink.dim, 255);
+    // ---- right: top row clock + weather + song, then GPU / memory / CPU details
+    let rx = m + pw + 32.0 * k;
+    let rw = w - m - rx;
+    hair_v(p, rx - 16.0 * k, m, h - m, &ink);
+    let head = m + lcap;
+    date_line(p, rx, head, v, lcap, ink.muted, k);
+    let ccap = 72.0 * k;
+    let cb = head + 16.0 * k + ccap;
+    let cwid = p.text(rx - ccap * 0.05, cb, &v.hhmm, ccap, W::Light, ink.text, 255);
+    let wx_x = rx + cwid + 36.0 * k;
+    if let Some(wx) = &v.wx {
+        let s = 40.0 * k;
+        weather_icon(p, wx_x - 4.0 * k, cb - ccap, s, wx.icon, wx.night);
+        p.text(wx_x + s + 6.0 * k, cb - ccap + 30.0 * k, &wx.temp, 30.0 * k, W::Regular, ink.text, 255);
+        let sub = ellipsize(p, &wx.cond, 13.5 * k, W::Regular, 230.0 * k);
+        p.text(wx_x, cb, &sub, 13.5 * k, W::Regular, ink.muted, 255);
+    }
+    let mx = wx_x + 250.0 * k;
+    music(p, d, cover, (mx, cb - 62.0 * k, w - m - mx, 62.0 * k), 16.0 * k, &ink, k, false);
+    let dy = cb + 16.0 * k;
+    wx_days(p, rx, dy, rw * 0.5, v, 12.0 * k, 22.0 * k, &ink, k);
+    let sy = dy + kv_h(12.0 * k, 22.0 * k, k) + 26.0 * k;
+    hair_h(p, rx, w - m, sy - 13.0 * k, &ink);
+    let cgap = 32.0 * k;
+    let cw = ((rw - 2.0 * cgap) / 3.0).floor();
+    let order = [1usize, 2, 0];
+    for (j, si) in order.iter().enumerate() {
+        let s = &secs[*si];
+        let x = rx + j as f32 * (cw + cgap);
+        circle(p, x + 5.0 * k, sy + lcap * 0.5, 5.0 * k, s.colors[0], 255);
+        caps(p, x + 18.0 * k, sy + lcap, s.name, lcap, ink.muted, k);
+        let hcap = 50.0 * k;
+        let hb = sy + lcap + 12.0 * k + hcap;
+        let (hv, hu, hc) = if *si == 0 { (v.cpu_load.clone(), "%", th().text) } else { (s.hero.clone(), s.hero_unit, s.hero_color) };
+        let cap = hero_fit(p, &hv, hu, hcap, cw * 0.6);
+        hero(p, x, hb, &hv, hu, cap, if hc == th().text { ink.text } else { hc }, ink.muted);
+        if !s.side.is_empty() && *si != 0 {
+            text_r(p, x + cw, hb, &s.side, 14.0 * k, W::Regular, ink.muted);
+        }
+        let top = hb + 22.0 * k;
+        let vcap = 26.0 * k;
+        let lc = 12.0 * k;
+        let rows = spread(top, h - m, kv_h(lc, vcap, k), 2);
+        let cw2 = ((cw - 24.0 * k) / 3.0).floor();
+        for (ci, c) in s.cells.iter().enumerate() {
+            let (r, col) = (ci / 3, ci % 3);
+            let cc = if *si == 0 && ci == 0 { Cell { label: "Cores", value: v.cores.clone(), unit: String::new(), color: th().text, frac: None } } else { Cell { label: c.label, value: c.value.clone(), unit: c.unit.clone(), color: c.color, frac: c.frac } };
+            kv(p, x + col as f32 * (cw2 + 12.0 * k), rows[r], cw2, &cc, lc, vcap, &ink, k);
+        }
+    }
+}
+
+// ---------------------------------------------------------------- HORIZON
+
+fn horizon(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) {
+    let k = sc.k;
+    let ink = dark_ink();
+    let now = chrono::Local::now();
+    let t = now.hour() as f32 + now.minute() as f32 / 60.0;
+    // how high the sun is (-1 midnight .. 1 noon), from a 6:00-18:00 day
+    let day = (std::f32::consts::PI * (t - 6.0) / 12.0).sin();
+    let line_y = (204.0 * k).round();
+    let dl = day.clamp(0.0, 1.0);
+    let (top_c, low_c) = (lerp_rgb((3, 5, 14), (12, 34, 72), dl), lerp_rgb((12, 14, 34), (44, 92, 140), dl));
+    let dusk = (1.0 - day.abs() * 3.0).clamp(0.0, 1.0); // warm glow near sunrise / sunset
+    fill_with(p, w, h, &|_, y| {
+        if y < line_y {
+            let tt = y / line_y;
+            lerp_rgb(lerp_rgb(top_c, low_c, tt), (180, 90, 60), dusk * tt * tt * 0.55)
+        } else {
+            ink.bg
+        }
+    });
+    let m = 24.0 * k;
+    // the 24 h track: day arc above the line, hour marks under it
+    let x_of = |hh: f32| m + (hh / 24.0) * (w - 2.0 * m);
+    let arc_h = 150.0 * k;
+    let mut prev: Option<(f32, f32)> = None;
+    for i in 0..=96 {
+        let hh = i as f32 / 4.0;
+        let a = (std::f32::consts::PI * (hh - 6.0) / 12.0).sin();
+        let pt = (x_of(hh), line_y - a.max(0.0) * arc_h);
+        if let Some(pp) = prev {
+            if i % 2 == 0 {
+                capsule(p, pp, pt, 0.8 * k, WHITE, 40);
+            }
+        }
+        prev = Some(pt);
+    }
+    hair_h(p, 0.0, w, line_y, &Ink { line: (WHITE, 70), ..ink });
+    for hh in [0, 3, 6, 9, 12, 15, 18, 21, 24] {
+        let x = x_of(hh as f32);
+        p.layer.fill_rrect_solid((x.round(), line_y, 1.0, 7.0 * k), 0.0, WHITE, 70);
+        let lab = format!("{hh:02}");
+        let lw = p.width(&lab, 11.0 * k, W::Regular);
+        p.text((x - lw / 2.0).clamp(m, w - m - lw), line_y + 22.0 * k, &lab, 11.0 * k, W::Regular, ink.dim, 255);
+    }
+    // the sun (day) or the moon (night) on the track
+    let sx = x_of(t);
+    if day > 0.0 {
+        let sy = line_y - day * arc_h;
+        for (r, a) in [(46.0, 14u8), (32.0, 26), (22.0, 50)] {
+            circle(p, sx, sy, r * k, (255, 200, 90), a);
+        }
+        circle(p, sx, sy, 15.0 * k, (255, 214, 120), 255);
+    } else {
+        let sy = line_y - 70.0 * k;
+        circle(p, sx, sy, 24.0 * k, (220, 228, 255), 30);
+        circle(p, sx, sy, 13.0 * k, (230, 236, 250), 255);
+        circle(p, sx + 6.0 * k, sy - 4.0 * k, 11.0 * k, lerp_rgb(top_c, low_c, (sy - 4.0 * k) / line_y), 255);
+    }
+    // sky text: clock + date left, weather right, song in the middle
+    let lcap = 13.5 * k;
+    let head = m + lcap;
+    date_line(p, m, head, v, lcap, (225, 230, 240), k);
+    let ccap = 104.0 * k;
+    p.text(m - ccap * 0.05, head + 18.0 * k + ccap, &v.hhmm, ccap, W::Light, WHITE, 255);
+    let sky = Ink { muted: (205, 212, 228), dim: (170, 178, 196), text: WHITE, ..ink };
+    let wr = 400.0 * k;
+    wx_now(p, w - m - wr, m, wr, v, lcap, 30.0 * k, &sky, k);
+    wx_days(p, w - m - wr, m + kv_h(lcap, 30.0 * k, k) + 18.0 * k, wr, v, lcap, 24.0 * k, &sky, k);
+    music(p, d, cover, (620.0 * k, m, 560.0 * k, 64.0 * k), 17.0 * k, &sky, k, false);
+    // ---- below the horizon: the three sections side by side
+    let top = line_y + 36.0 * k;
+    let gap = 40.0 * k;
+    let sw = ((w - 2.0 * m - 2.0 * gap) / 3.0).floor();
+    for (si, s) in sections(d, v, hist).iter().enumerate() {
+        let x = m + si as f32 * (sw + gap);
+        if si > 0 {
+            hair_v(p, x - gap / 2.0, top, h - m, &ink);
+        }
+        sec_head(p, x, top + lcap, 190.0 * k, s, lcap, &ink, k);
+        let hcap = 84.0 * k;
+        let hb = top + lcap + 16.0 * k + hcap;
+        let cap = hero_fit(p, &s.hero, s.hero_unit, hcap, 190.0 * k);
+        hero(p, x, hb, &s.hero, s.hero_unit, cap, if s.hero_color == th().text { ink.text } else { s.hero_color }, ink.muted);
+        let side = if s.side.is_empty() { s.device.clone() } else { s.side.clone() };
+        let side = ellipsize(p, &side, lcap, W::Regular, 190.0 * k);
+        p.text(x, hb + 28.0 * k, &side, lcap, W::Regular, ink.muted, 255);
+        let cx0 = x + 206.0 * k;
+        let cw3 = ((x + sw - cx0) / 3.0).floor();
+        let vcap = 32.0 * k;
+        let lc = 12.5 * k;
+        let ch = kv_h(lc, vcap, k);
+        let content = 2.0 * ch + 30.0 * k;
+        let r0 = (top + ((h - m - top - content) / 2.0).max(0.0)).round();
+        let rows = [r0, r0 + ch + 30.0 * k];
+        for (ci, c) in s.cells.iter().enumerate() {
+            let (r, col) = (ci / 3, ci % 3);
+            kv(p, cx0 + col as f32 * cw3, rows[r], cw3 - 12.0 * k, c, lc, vcap, &ink, k);
+        }
+    }
+}
+
 pub(super) fn paint(layout: Layout, p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) -> bool {
     match layout {
         Layout::Swiss => swiss(p, w, h, sc, d, v, cover),
@@ -959,6 +1380,10 @@ pub(super) fn paint(layout: Layout, p: &mut Painter, w: f32, h: f32, sc: &Scale,
         Layout::Meter => meter(p, w, h, sc, d, v, hist, cover),
         Layout::Glance => glance(p, w, h, sc, d, v, hist, cover),
         Layout::Daylight => daylight(p, w, h, sc, d, v, hist, cover),
+        Layout::Pulse => pulse(p, w, h, sc, d, v, hist, cover),
+        Layout::Ambient => ambient(p, w, h, sc, d, v, hist, cover),
+        Layout::Poster => poster(p, w, h, sc, d, v, hist, cover),
+        Layout::Horizon => horizon(p, w, h, sc, d, v, hist, cover),
         _ => return false,
     }
     true

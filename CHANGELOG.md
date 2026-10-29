@@ -1,6 +1,11 @@
 # Changelog
 
 
+## 3.1 — Creative collection
+
+- New layouts: **pulse** (temperature waves behind the numbers), **ambient** (album cover as the background, glass panel), **poster** (giant CPU temperature), **horizon** (sky by time of day, sun on a 24 h track).
+- They are listed first in HuyBruh Dash and in `pro_layout = all`.
+
 ## 3.0 — HuyBruh Dash
 
 - New name: **HuyBruh Dash**, with an HB logo and a 2-second start-up logo on the display.
