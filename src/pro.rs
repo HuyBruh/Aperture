@@ -138,33 +138,29 @@ pub enum Layout {
     Blueprint,
     /// Swiss typographic grid.
     Swiss,
-    /// Clean collection (Inter): even columns with hairline tables.
-    Studio,
     /// Clean: rounded tiles like phone widgets.
     Grid,
-    /// Clean: one row of hero numbers with trend lines.
-    Line,
-    /// Clean: time and music on the left half, stat rows on the right.
-    Split,
-    /// Clean: thin bar meters.
-    Meter,
-    /// Clean: the two temperatures first.
-    Glance,
-    /// Clean: light mode.
-    Daylight,
-    /// Creative: temperature waves fill the screen.
-    Pulse,
-    /// Creative: the album cover lights the room.
-    Ambient,
-    /// Creative: one huge number, magazine poster.
-    Poster,
-    /// Creative: the day as a sky with the sun on a 24 h track.
-    Horizon,
+    /// Tiles tinted with each section's color (Samsung One UI widgets).
+    Tint,
+    /// Translucent tiles over a soft color wallpaper (macOS / Windows 11 widgets).
+    Glass,
+    /// Tiles with a big arc gauge per section (NZXT CAM / Kraken).
+    Gauge,
+    /// Three full-width rows, six readings in a line each.
+    Stack,
+    /// Eight equal tiles, one big number each.
+    Mosaic,
+    /// A mixing console of level faders.
+    Mixer,
+    /// A temperature chart with a scale next to a table.
+    Chart,
+    /// Music first: a large album cover tile.
+    Player,
 }
 
 impl Layout {
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 20] = [Layout::Focus, Layout::Pulse, Layout::Ambient, Layout::Poster, Layout::Horizon, Layout::Studio, Layout::Grid, Layout::Line, Layout::Split, Layout::Meter, Layout::Glance, Layout::Daylight, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 18] = [Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
@@ -183,22 +179,20 @@ impl Layout {
             Layout::Synthwave => "synthwave",
             Layout::Blueprint => "blueprint",
             Layout::Swiss => "swiss",
-            Layout::Studio => "studio",
             Layout::Grid => "grid",
-            Layout::Line => "line",
-            Layout::Split => "split",
-            Layout::Meter => "meter",
-            Layout::Glance => "glance",
-            Layout::Daylight => "daylight",
-            Layout::Pulse => "pulse",
-            Layout::Ambient => "ambient",
-            Layout::Poster => "poster",
-            Layout::Horizon => "horizon",
+            Layout::Tint => "tint",
+            Layout::Glass => "glass",
+            Layout::Gauge => "gauge",
+            Layout::Stack => "stack",
+            Layout::Mosaic => "mosaic",
+            Layout::Mixer => "mixer",
+            Layout::Chart => "chart",
+            Layout::Player => "player",
         }
     }
     /// The clean collection, drawn with Inter.
     pub fn clean(self) -> bool {
-        matches!(self, Layout::Studio | Layout::Grid | Layout::Line | Layout::Split | Layout::Meter | Layout::Glance | Layout::Daylight | Layout::Pulse | Layout::Ambient | Layout::Poster | Layout::Horizon)
+        matches!(self, Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {

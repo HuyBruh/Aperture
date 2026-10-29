@@ -1,6 +1,15 @@
 # Changelog
 
 
+## 3.3 — New compositions
+
+- New layouts: **stack** (three full-width rows), **mosaic** (eight one-number tiles + cover tile), **mixer** (level faders), **chart** (temperature chart + table), **player** (big album cover).
+
+## 3.2 — Tile collection
+
+- New layouts built on the Grid tiles: **tint** (tiles tinted per section, sky-colored weather, cover-colored music), **glass** (frosted tiles over a wallpaper from the theme colors), **gauge** (arc gauge per section with tiles around it).
+- Removed studio, line, split, meter, glance, daylight, pulse, ambient, poster and horizon.
+
 ## 3.1 — Creative collection
 
 - New layouts: **pulse** (temperature waves behind the numbers), **ambient** (album cover as the background, glass panel), **poster** (giant CPU temperature), **horizon** (sky by time of day, sun on a 24 h track).

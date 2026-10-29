@@ -5,7 +5,7 @@
 # HuyBruh Dash
 
 **A clean, fast system dashboard for the Thermalright Trofeo Vision 9.16″ LCD.**<br>
-25 layouts · a friendly settings app (English / Tiếng Việt) · CPU / GPU / RAM / SSD / network · FPS · weather · now playing
+23 layouts · a friendly settings app (English / Tiếng Việt) · CPU / GPU / RAM / SSD / network · FPS · weather · now playing
 
 [![Release](https://img.shields.io/github/v/release/HuyBruh/trofeo-lcd-rs?include_prereleases&style=flat-square&color=7c5cff)](../../releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--or--later-3dd9d6?style=flat-square)](LICENSE)
@@ -36,18 +36,30 @@ Every layout shows:
 
 ## What's new
 
-### 3.1: the creative collection
+### 3.3: five new compositions
 
-Four more expressive layouts, still with the full set of readings and large text:
+Each one has its own structure, not the usual four columns, and keeps every reading and the large type:
 
-- **Pulse:** the CPU and GPU temperature history runs as soft waves behind the big numbers.
-- **Ambient:** the album cover colors the whole screen, with a large cover and the readings on a frosted glass panel. With no music, the background is a gradient of your theme.
-- **Poster:** the CPU temperature as one giant number running off the edge, magazine style.
-- **Horizon:** the sky changes with the time of day, and the sun or moon moves along a 24-hour track.
+- **Stack:** three full-width rows (CPU, GPU, memory). The hero number sits on the left, six readings in one line next to it.
+- **Mosaic:** eight equal tiles with one big number each and the related readings as a short note, plus a tall album-cover tile.
+- **Mixer:** each section as a mixing console of four tall level faders.
+- **Chart:** a real temperature chart with a scale and legend, next to a table of every reading.
+- **Player:** music first, with the album cover as a big square tile and the title over it.
+
+### 3.2: the tile collection
+
+Every new design now builds on the tile grid: clear tiles, the same positions on every layout, and large text you can read from your chair.
+
+- **Grid:** even dark tiles, like phone widgets.
+- **Tint:** each section's tile tinted with its own color (Samsung One UI style). The weather tile follows day / night and the music tile follows the album cover.
+- **Glass:** frosted tiles over a soft wallpaper made from your theme colors (macOS / Windows 11 widgets).
+- **Gauge:** a large arc gauge per section with the readings in tiles around it (NZXT CAM / Kraken style).
+
+The 3.0 and 3.1 experiments (studio, line, split, meter, glance, daylight, pulse, ambient, poster, horizon) were removed.
 
 ### 3.0
 
-- **The clean collection.** Seven new minimal layouts: Studio, Grid, Line, Split, Meter, Glance and Daylight. They use the Inter typeface on a strict grid, with even spacing and the same large sizes as Focus.
+- **Grid:** a clean tile layout with the Inter typeface and the same large sizes as Focus.
 - **The HuyBruh Dash app replaces the console menus.**
   - Live preview of the display.
   - A gallery of every layout with thumbnails.
@@ -85,28 +97,24 @@ Measured on Windows 11 with a Ryzen 7 5700X3D (8 cores / 16 threads) and a Radeo
 
 Memory use is roughly 24-35 MB. Even the busiest layout stays under 1% of the whole CPU. Numbers will differ a little on other machines and while music or a game is running.
 
-The clean collection (3.0) draws the same way and has not been measured separately yet.
+The newer layouts draw the same way and have not been measured separately yet.
 
 ## Layouts
 
-### The creative collection
-
-<img src="docs/img/creative-collection.png" alt="Pulse, Ambient, Poster, Horizon" width="100%">
+### New compositions
 
 <table>
-<tr><td align="center" width="50%"><img src="docs/img/pulse.png"><br><b>Pulse</b><br><sub>temperature waves behind the big numbers</sub></td><td align="center" width="50%"><img src="docs/img/ambient.png"><br><b>Ambient</b><br><sub>the album cover lights the screen</sub></td></tr>
-<tr><td align="center"><img src="docs/img/poster.png"><br><b>Poster</b><br><sub>one giant number, magazine style</sub></td><td align="center"><img src="docs/img/horizon.png"><br><b>Horizon</b><br><sub>the day as a sky, sun on a 24 h track</sub></td></tr>
+<tr><td align="center" width="50%"><img src="docs/img/stack.png"><br><b>Stack</b><br><sub>three full-width rows</sub></td><td align="center" width="50%"><img src="docs/img/mosaic.png"><br><b>Mosaic</b><br><sub>one big number per tile</sub></td></tr>
+<tr><td align="center"><img src="docs/img/mixer.png"><br><b>Mixer</b><br><sub>level faders</sub></td><td align="center"><img src="docs/img/chart.png"><br><b>Chart</b><br><sub>temperature chart + table</sub></td></tr>
+<tr><td align="center" colspan="2"><img src="docs/img/player.png" width="50%"><br><b>Player</b><br><sub>music first</sub></td></tr>
 </table>
 
-### The clean collection
-
-<img src="docs/img/clean-collection.png" alt="Studio, Grid, Line, Split, Meter, Glance, Daylight" width="100%">
+### The tile collection
 
 <table>
-<tr><td align="center" width="50%"><img src="docs/img/studio.png"><br><b>Studio</b><br><sub>four columns on one grid, hairline tables</sub></td><td align="center" width="50%"><img src="docs/img/grid.png"><br><b>Grid</b><br><sub>rounded tiles like phone widgets</sub></td></tr>
-<tr><td align="center"><img src="docs/img/line.png"><br><b>Line</b><br><sub>five hero numbers with trend lines, one row per section</sub></td><td align="center"><img src="docs/img/split.png"><br><b>Split</b><br><sub>big clock and music on the left, stat rows on the right</sub></td></tr>
-<tr><td align="center"><img src="docs/img/meter.png"><br><b>Meter</b><br><sub>thin bar meters, easy to scan</sub></td><td align="center"><img src="docs/img/glance.png"><br><b>Glance</b><br><sub>the two temperatures, readable across the room</sub></td></tr>
-<tr><td align="center"><img src="docs/img/daylight.png"><br><b>Daylight</b><br><sub>light mode, white cards</sub></td><td align="center"><img src="docs/img/focus.png"><br><b>Focus</b><br><sub>giant digits, the original favorite</sub></td></tr>
+<tr><td align="center" width="50%"><img src="docs/img/grid.png"><br><b>Grid</b><br><sub>even dark tiles, like phone widgets</sub></td><td align="center" width="50%"><img src="docs/img/tint.png"><br><b>Tint</b><br><sub>tiles tinted with each section's color</sub></td></tr>
+<tr><td align="center"><img src="docs/img/glass.png"><br><b>Glass</b><br><sub>frosted tiles over a soft color wallpaper</sub></td><td align="center"><img src="docs/img/gauge.png"><br><b>Gauge</b><br><sub>a big arc gauge per section</sub></td></tr>
+<tr><td align="center" colspan="2"><img src="docs/img/focus.png" width="50%"><br><b>Focus</b><br><sub>giant digits, no tiles</sub></td></tr>
 </table>
 
 ### More landscape layouts
@@ -132,7 +140,7 @@ The clean collection (3.0) draws the same way and has not been measured separate
 
 NZXT, Graphite, Crimson, Arctic, Ember, Neon, or any color you pick (the app builds a matching palette).
 
-<img src="docs/img/themes-clean.png" alt="Studio in the six themes" width="100%">
+<img src="docs/img/themes-tiles.png" alt="Tint in the six themes" width="100%">
 
 ## The app
 
@@ -191,7 +199,7 @@ Everything the app changes lives in `trofeo.conf` next to the program and is re-
 
 ```ini
 layout       = pro
-pro_layout   = studio        # focus pulse ambient poster horizon studio grid line split meter glance daylight swiss classic cockpit bento
+pro_layout   = grid          # focus grid stack mosaic mixer chart player tint glass gauge swiss classic cockpit bento
                              # terminal chamfer rings dots | lock equalizer receipt synthwave blueprint | all
 pro_theme    = nzxt          # nzxt graphite crimson arctic ember neon all  or  #RRGGBB
 flip         = false         # true if the picture is upside down
