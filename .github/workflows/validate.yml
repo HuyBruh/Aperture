@@ -1,0 +1,33 @@
+name: Validate Aperture
+on:
+  push:
+    branches: [main, 'aperture/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pillow
+      - run: python tools/generate-design.py --check
+      - run: python tools/check-design.py
+      - run: cargo check --locked --bins
+      - run: cargo test --release --locked --bins --lib -- --test-threads=1
+      - run: cargo build --release --locked --bin aperture-display --bin aperture
+      - run: python tools/render-collection.py
+      - run: ./tools/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aperture-windows-validation
+          path: |
+            dist/aperture-windows.zip
+            docs/img/aperture/*.png
+            target/design-check/render-results.json

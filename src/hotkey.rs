@@ -1,5 +1,5 @@
-//! Global hotkey for LCD frame screenshots (used by trofeo_lcd and
-//! trofeo_screen). On Windows it uses `RegisterHotKey` — a "global" hotkey
+//! Global hotkey for LCD frame screenshots (used by aperture-display and
+//! aperture-screen). On Windows it uses `RegisterHotKey` — a "global" hotkey
 //! (works even when the program's window isn't focused). Not available on
 //! other OSes: `register` fails with a clear message, and the program keeps
 //! running without the hotkey.

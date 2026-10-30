@@ -14,7 +14,7 @@
 
 use std::sync::OnceLock;
 use std::time::Instant;
-use trofeo_lcd::Framebuffer;
+use aperture::Framebuffer;
 
 pub type Rgb = (u8, u8, u8);
 
@@ -506,7 +506,7 @@ fn draw_mirror(fb: &mut Framebuffer, area: (u32, u32, u32, u32), heights: &[f32]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trofeo_lcd::Resolution;
+    use aperture::Resolution;
 
     fn canvas() -> Framebuffer {
         let mut fb = Framebuffer::new(Resolution { width: 600, height: 300 });

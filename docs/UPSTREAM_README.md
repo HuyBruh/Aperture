@@ -1,4 +1,4 @@
-# trofeo_lcd
+# aperture-display
 ![overview](../img/overview.png)
 ![overview2](../img/overview2.jpeg)
 ![overview2](../img/overview3.jpeg)
@@ -43,8 +43,8 @@ system status (CPU/GPU/RAM/temp) stays readable while playing.
 
 ![Gaming — foreground game info](../img/gaming.png)
 
-**Don't like editing text files?** Start **`trofeo_config`**, the graphical
-[settings editor](#settings-editor-trofeo_config): menus, sliders and color pickers for every
+**Don't like editing text files?** Start **`aperture-config`**, the graphical
+[settings editor](#settings-editor-aperture-config): menus, sliders and color pickers for every
 option, and a live preview of the display drawn by the real program.
 
 ![The settings editor](../img/config-editor.png)
@@ -55,10 +55,10 @@ option, and a live preview of the display drawn by the real program.
   PulseAudio/PipeWire on Linux), colored green→yellow→red — or any of 9 color
   palettes and 5 drawing styles.
 - System info: CPU %, real-time CPU frequency, RAM, uptime, clock & date.
-- **Settings editor** (`trofeo_config`): a small graphical program to create and edit
+- **Settings editor** (`aperture-config`): a small graphical program to create and edit
   `trofeo.conf` — every option in sections, with a **live preview drawn by the real
   program**. It only edits the file: it is not needed (and not in memory) while the display
-  runs (see [Settings editor](#settings-editor-trofeo_config)).
+  runs (see [Settings editor](#settings-editor-aperture-config)).
 - **Music screen**: a Spotify-style now-playing card (album cover, artist/title,
   progress bar, spectrum, colors taken from the cover).
 - **Pixel game** under the clock: a self-playing pixel-art platformer (a knight
@@ -75,7 +75,7 @@ option, and a live preview of the display drawn by the real program.
   and brightness, at almost no CPU cost (see
   [Backgrounds](#backgrounds-solid-color-and-animated-effects)).
 - Can also drive a **DeepCool** display (sends CPU data over HID).
-- **Second monitor mode** (`trofeo_screen`): the LCD becomes a real second
+- **Second monitor mode** (`aperture-screen`): the LCD becomes a real second
   monitor.
 - Current **weather** (temperature + a stylized condition icon) and a
   **7-day forecast strip**, auto-detected from your IP or a city you set.
@@ -88,11 +88,11 @@ option, and a live preview of the display drawn by the real program.
 
 ```bash
 cargo build --release
-./target/release/trofeo_lcd      # Windows: .\target\release\trofeo_lcd.exe
+./target/release/aperture-display      # Windows: .\target\release\aperture-display.exe
 ```
 
-`cargo build --release` builds all three programs: `trofeo_lcd` (the display),
-`trofeo_screen` (second-monitor mode) and `trofeo_config` (the settings editor).
+`cargo build --release` builds all three programs: `aperture-display` (the display),
+`aperture-screen` (second-monitor mode) and `aperture-config` (the settings editor).
 
 **Windows** — to read AMD CPU temp/power, install
 [PawnIO](https://github.com/namazso/PawnIO) and run as Administrator.
@@ -101,19 +101,19 @@ cargo build --release
 `playerctl` for song titles. For USB access without `sudo`, install
 `99-trofeo-lcd.rules` (see the file's contents).
 
-### Settings editor (`trofeo_config`)
+### Settings editor (`aperture-config`)
 
 ![The settings editor](../img/config-editor.png)
 
-Don't want to edit `trofeo.conf` by hand? Start `trofeo_config` (Windows: `trofeo_config.exe`,
-in the same folder as `trofeo_lcd.exe`). It opens the `trofeo.conf` next to it — or the file you
-pass as its first argument (`trofeo_config my.conf`), or any file with *Open...* — and shows
+Don't want to edit `trofeo.conf` by hand? Start `aperture-config` (Windows: `aperture-config.exe`,
+in the same folder as `aperture-display.exe`). It opens the `trofeo.conf` next to it — or the file you
+pass as its first argument (`aperture-config my.conf`), or any file with *Open...* — and shows
 every setting, in sections: screen, background, animated background, screens (layouts), tiles,
 what to show, colors and text, spectrum, single items, music card, pixel game, weather and news,
 system, plus a *Raw file* view for anything else.
 
 - **Live preview, drawn by the real program.** The picture at the top is made by
-  `trofeo_lcd` itself (the editor runs it with `--preview-png` and shows the frame), with
+  `aperture-display` itself (the editor runs it with `--preview-png` and shows the frame), with
   sample data — clock, CPU/GPU values, a song — so backgrounds, effects, layouts, tiles, fonts
   and colors look exactly as they will on the LCD. It never touches the USB device, the audio
   or the sensors. Pick *Nothing playing*, *Music playing (spectrum)* or *Music card*, choose
@@ -121,28 +121,28 @@ system, plus a *Raw file* view for anything else.
   wrong, the real program's own error message is shown instead.
 - **Only what you change is written.** Settings left at their default stay out of the file;
   the small `x` next to a setting takes it out again; `*` marks the ones that need a restart
-  of `trofeo_lcd`, and a number shows how many settings of a section you changed.
+  of `aperture-display`, and a number shows how many settings of a section you changed.
 - **Your file stays yours.** Comments and lines the editor doesn't touch are kept exactly as
   they are, new settings are added under an "Added by the settings editor" comment, and the
   previous file is copied to `trofeo.conf.bak` the first time you save in each session.
-- **The display follows by itself.** A running `trofeo_lcd` re-reads the file every second,
+- **The display follows by itself.** A running `aperture-display` re-reads the file every second,
   so saved changes appear on the LCD without a restart (see [Live reload](#live-reload)).
 - **Not resident.** The editor is a separate program that only reads and writes the file:
-  close it when you are done, `trofeo_lcd` does not need it.
-- Needs `trofeo_lcd.exe` in the same folder for the preview (the rest works without it).
+  close it when you are done, `aperture-display` does not need it.
+- Needs `aperture-display.exe` in the same folder for the preview (the rest works without it).
   The window is in Italian or English (switch at the top right). On Linux the *Open / Save as*
   dialogs are replaced by a box where you type the path.
 
-Details in the **[Options guide](./OPTIONS_GUIDE.md#settings-editor-trofeo_config)**.
+Details in the **[Options guide](./OPTIONS_GUIDE.md#settings-editor-aperture-config)**.
 
 ### Windows Defender / antivirus false positive
 
-Windows may flag `trofeo_lcd.exe`, `trofeo_screen.exe` or `trofeo_config.exe` as a virus (often a
+Windows may flag `aperture-display.exe`, `aperture-screen.exe` or `aperture-config.exe` as a virus (often a
 generic detection like `Trojan:Win32/Wacatac`) and delete it on download or
 on first run. **This is a false positive**, common for small, unsigned Rust
 executables that do low-level system things — raw USB/HID access (DeepCool
 integration), a global hotkey (screenshot), ETW tracing (FPS monitor), and
-screen capture (`trofeo_screen`) — each of which happens to match a pattern
+screen capture (`aperture-screen`) — each of which happens to match a pattern
 heuristic antivirus engines associate with malware, even though the full
 source is public and does none of it maliciously.
 
@@ -164,7 +164,7 @@ source is public and does none of it maliciously.
 
 For every option the program supports — config-file keys and command-line
 flags, with defaults, valid values and examples — see the
-**[Options guide](./OPTIONS_GUIDE.md)**, or open the [settings editor](#settings-editor-trofeo_config).
+**[Options guide](./OPTIONS_GUIDE.md)**, or open the [settings editor](#settings-editor-aperture-config).
 The table below covers just the handful of flags that only exist on the command line.
 
 | Option | Purpose | Default |
@@ -199,7 +199,7 @@ adapts to the panel size, in landscape and in portrait. At start-up the console
 prints `Connected: ... PM=.. SUB=..` and the canvas/panel size in use.
 **The 11.3" support has not been verified on real hardware yet**: if the picture
 is shifted, cropped or the panel stays black, please open an issue and paste
-those two console lines. For `trofeo_screen` (second-monitor mode) pass
+those two console lines. For `aperture-screen` (second-monitor mode) pass
 `--panel trofeo-11.3` and use a virtual display of 1920×400 (400×1920 in portrait).
 
 ## Orientation (landscape / portrait)
@@ -210,20 +210,20 @@ config file (copy `trofeo.conf.example` to `trofeo.conf` next to the
 executable, or pass `--config <FILE>`) or on the command line:
 
 ```bash
-./trofeo_lcd --orientation portrait          # display mounted upright
-./trofeo_lcd --orientation portrait --flip   # upright, but upside-down
+./aperture-display --orientation portrait          # display mounted upright
+./aperture-display --orientation portrait --flip   # upright, but upside-down
 ```
 
 `--flip` adds 180° in either orientation. Command-line options override the
-config file. In `trofeo_screen` portrait mode the virtual display must be
+config file. In `aperture-screen` portrait mode the virtual display must be
 **462×1920** (auto-detected by `--list-displays`).
 
 ## Margins, language, background
 
-Also settable in `trofeo.conf` (see `trofeo.conf.example`), in the [settings editor](#settings-editor-trofeo_config), or via CLI:
+Also settable in `trofeo.conf` (see `trofeo.conf.example`), in the [settings editor](#settings-editor-aperture-config), or via CLI:
 
 - `--margin <PX>` (or `--margin-top/-bottom/-left/-right`): keep the UI away
-  from the screen edges. Works in `trofeo_screen` too.
+  from the screen edges. Works in `aperture-screen` too.
 - `--language <en|it|de|es|fr|pt>` (default `en`): UI text and date names in
   English, Italian, German, Spanish, French, or Portuguese. Accented letters
   are written in ASCII-safe form since the bitmap font has no accent glyphs
@@ -454,10 +454,10 @@ the standard screen (not alternating every 5s); an entry with no `:seconds` fall
 `layout_interval`. `default2` is the same screen but with the per-item styling below (`default`
 stays classic; per-item options without any `layout` imply `default2`). `default` is the standard
 screen (status lines, spectrum, big clock) and can be part of the rotation (`layout = default, cpu-gpu`).
-`trofeo_lcd.exe --diag` prints NVIDIA/AMD GPU sensor diagnostics. `text_backdrop = true` puts a panel
+`aperture-display.exe --diag` prints NVIDIA/AMD GPU sensor diagnostics. `text_backdrop = true` puts a panel
 behind the status lines and big clock (same opacity); `panel_opacity = 0-100`
 makes panels see-through over the background. Big panels replace the clock; portrait stacks
-them vertically. See `trofeo.conf.example`. In the [settings editor](#settings-editor-trofeo_config),
+them vertically. See `trofeo.conf.example`. In the [settings editor](#settings-editor-aperture-config),
 the *Screens (layouts)* section builds the rotation with a list (add, reorder, seconds per screen)
 and the preview lets you look at each screen in turn.
 
@@ -494,12 +494,12 @@ animated effects of [Backgrounds](#backgrounds-solid-color-and-animated-effects)
 or an image just for this screen. Works on 1920×462, 1920×400 and in portrait; the
 tiles are redrawn only when something changes, so even an animated background costs
 little. All the keys are in the [options guide](./OPTIONS_GUIDE.md#tiles-layout). In the
-[settings editor](#settings-editor-trofeo_config) the *Tiles* section lets you build the rows
+[settings editor](#settings-editor-aperture-config) the *Tiles* section lets you build the rows
 by picking each tile from a list and toggling *ring* / *tall*.
 
 ### Live reload
 
-`trofeo.conf` is re-read every second; saved changes apply without restarting (a broken file is ignored and the previous settings stay). Only `deepcool`, `fps_monitor`, OpenRGB, `hide_console`, `screenshot_key`, `weather_city`, `ticker_source` and `ticker_refresh_min` need a restart. If a saved file is invalid, the previous settings stay active and the reason is written to `trofeo-errors.txt` next to the executable. The [settings editor](#settings-editor-trofeo_config) relies on this: save in the editor and the LCD updates by itself.
+`trofeo.conf` is re-read every second; saved changes apply without restarting (a broken file is ignored and the previous settings stay). Only `deepcool`, `fps_monitor`, OpenRGB, `hide_console`, `screenshot_key`, `weather_city`, `ticker_source` and `ticker_refresh_min` need a restart. If a saved file is invalid, the previous settings stay active and the reason is written to `trofeo-errors.txt` next to the executable. The [settings editor](#settings-editor-aperture-config) relies on this: save in the editor and the LCD updates by itself.
 
 ### Per-item control
 
@@ -517,7 +517,7 @@ whole-number look.
 ### Autostart on Windows
 
 `scripts/install-autostart.ps1` (included in the Windows release zip) adds
-`trofeo_lcd.exe` to Windows startup. By default it registers a **Scheduled
+`aperture-display.exe` to Windows startup. By default it registers a **Scheduled
 Task** that runs at logon with elevated ("Run as administrator")
 privileges and no UAC prompt on every login — needed if you use
 `fps_monitor` or PawnIO (AMD sensors). Run it from the folder with the exe:
@@ -531,16 +531,16 @@ privileges and no UAC prompt on every login — needed if you use
 Remove it with `.\scripts\uninstall-autostart.ps1` (removes whichever
 method was used). See the comments at the top of each script (or
 `Get-Help .\scripts\install-autostart.ps1 -Full`) for every option.
-Only `trofeo_lcd.exe` is started at logon: the settings editor is opened by hand when you want it.
+Only `aperture-display.exe` is started at logon: the settings editor is opened by hand when you want it.
 
 ## Second monitor mode
 
-Run **`trofeo_screen`** (instead of `trofeo_lcd` — they share the LCD, so
+Run **`aperture-screen`** (instead of `aperture-display` — they share the LCD, so
 don't run them together):
 
 ```bash
-./target/release/trofeo_screen --list-displays    # list monitors
-./target/release/trofeo_screen                    # stream to LCD
+./target/release/aperture-screen --list-displays    # list monitors
+./target/release/aperture-screen                    # stream to LCD
 ```
 
 Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
@@ -560,14 +560,14 @@ Requires a *Virtual Display Driver* (VDD) at 1920×462 — see
 - `src/pixel_game.rs` — the self-playing pixel-art platformer under the clock.
 - `src/effect.rs` — the animated backgrounds (plasma, aurora, lava, waves, matrix, rain, aquarium and their light variants).
 - `src/tiles.rs` + `src/smooth_font.rs` + `assets/` — the tiles layout and its anti-aliased text (embedded Chakra Petch font, SIL OFL: see `assets/OFL.txt`).
-- `src/bin/config_editor.rs` — the settings editor window (`trofeo_config`, built with egui).
+- `src/bin/config_editor.rs` — the settings editor window (`aperture-config`, built with egui).
 - `src/schema.rs` — the list of every setting the editor shows (names, ranges, defaults, texts in English and Italian); tests check it against the real parser, so the editor can only write what the program accepts.
 - `src/conf_edit.rs` — line-by-line editing of `trofeo.conf` that keeps comments and untouched lines.
 - `src/main.rs` — main loop: audio → FFT → EQ bars → send to screen (and `--preview-png`, which draws one frame for the editor's preview).
 
 ## Performance
 
-Measured on a Windows PC (12 logical processors), running `trofeo_lcd` at
+Measured on a Windows PC (12 logical processors), running `aperture-display` at
 default settings (idle FPS 2 / active 15, DeepCool enabled), before the pixel
 game existed:
 
@@ -594,7 +594,7 @@ idle 2 fps, so it sits between the idle screen and the game; lower `effect_fps` 
 color** background costs nothing extra.
 
 The **settings editor** is not part of this: it is a separate program, and it only needs to be
-open while you change settings. Its preview starts `trofeo_lcd` for a moment to draw each frame
+open while you change settings. Its preview starts `aperture-display` for a moment to draw each frame
 and exits; it never touches the LCD, the audio or the sensors, so it can be used while the
 display is running.
 

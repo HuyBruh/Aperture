@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Adds trofeo_lcd (or trofeo_screen) to Windows startup.
+  Adds aperture-display (or aperture-screen) to Windows startup.
 
 .DESCRIPTION
   Two methods are available:
@@ -20,8 +20,8 @@
                       or PawnIO).
 
 .PARAMETER Exe
-  Path to trofeo_lcd.exe (or trofeo_screen.exe). Defaults to
-  trofeo_lcd.exe next to this script.
+  Path to aperture-display.exe (or aperture-screen.exe). Defaults to
+  aperture-display.exe next to this script.
 
 .PARAMETER Arguments
   Extra command-line arguments passed to the program at startup, e.g.
@@ -35,14 +35,14 @@
   Set -Elevated:$false to run as a normal (non-admin) user instead.
 
 .PARAMETER TaskName
-  Name of the Scheduled Task / shortcut file. Default: "TrofeoLCD".
+  Name of the Scheduled Task / shortcut file. Default: "ApertureDisplay".
 
 .EXAMPLE
-  # From the folder with trofeo_lcd.exe (a UAC prompt will appear once):
+  # From the folder with aperture-display.exe (a UAC prompt will appear once):
   .\install-autostart.ps1
 
 .EXAMPLE
-  .\install-autostart.ps1 -Exe "C:\Tools\trofeo_lcd\trofeo_lcd.exe" -Arguments "--hide-console"
+  .\install-autostart.ps1 -Exe "C:\Tools\aperture-display\aperture-display.exe" -Arguments "--hide-console"
 
 .EXAMPLE
   # No admin rights needed, no elevation at startup:
@@ -51,18 +51,18 @@
 
 [CmdletBinding()]
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "trofeo_lcd.exe"),
+    [string]$Exe = (Join-Path $PSScriptRoot "aperture-display.exe"),
     [string]$Arguments = "--hide-console",
     [ValidateSet("Task", "Shortcut")]
     [string]$Method = "Task",
     [bool]$Elevated = $true,
-    [string]$TaskName = "TrofeoLCD"
+    [string]$TaskName = "ApertureDisplay"
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $Exe)) {
-    Write-Error "Executable not found: $Exe`nPass -Exe <path> or run this script from the folder that contains trofeo_lcd.exe."
+    Write-Error "Executable not found: $Exe`nPass -Exe <path> or run this script from the folder that contains aperture-display.exe."
     exit 1
 }
 $Exe = (Resolve-Path $Exe).Path
@@ -98,7 +98,7 @@ if ($Method -eq "Task") {
 
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Settings $settings -Principal $principal `
-        -Description "Starts $(Split-Path $Exe -Leaf) at logon (installed by trofeo_lcd's install-autostart.ps1)." | Out-Null
+        -Description "Starts $(Split-Path $Exe -Leaf) at logon (installed by aperture-display's install-autostart.ps1)." | Out-Null
 
     Write-Host "Done. Scheduled task '$TaskName' will start:" -ForegroundColor Green
     Write-Host "  $Exe $Arguments"

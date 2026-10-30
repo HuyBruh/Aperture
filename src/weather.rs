@@ -156,7 +156,7 @@ fn geocode_city(city: &str) -> Result<Location, String> {
             }
         }
     }
-    // "Mount Pleasant, Michigan" / "Mount Pleasant, MI, US": the part after the first
+    // "Portland, Oregon" / "Portland, OR, US": the part after the first
     // comma narrows the matches to the ones whose region / country contains it.
     let (city, qualifier) = match city.split_once(',') {
         Some((c, q)) => (c.trim(), Some(q.trim().to_lowercase())),

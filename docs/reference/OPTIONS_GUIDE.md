@@ -1,35 +1,35 @@
 # Options guide
 
-Every setting trofeo_lcd supports, in one place, with examples. For a shorter,
+Every setting aperture-display supports, in one place, with examples. For a shorter,
 inline-commented version you can copy and edit directly, see
-[`trofeo.conf.example`](./trofeo.conf.example).
+[`trofeo.conf.example`](../../trofeo.conf.example).
 
-## Settings editor (`trofeo_config`)
+## Settings editor (`aperture-config`)
 
-If you prefer clicking to typing, `trofeo_config` (`trofeo_config.exe` on Windows) edits
+If you prefer clicking to typing, `aperture-config` (`aperture-config.exe` on Windows) edits
 the same file for you.
 
-- **Where to put it**: in the same folder as `trofeo_lcd.exe` (and `trofeo.conf`). It
+- **Where to put it**: in the same folder as `aperture-display.exe` (and `trofeo.conf`). It
   opens `trofeo.conf` from its own folder; to edit another file, start it with the path
   as its first argument, or use *Open...* in the window.
-- **The preview** at the top is drawn by `trofeo_lcd` itself (it needs
-  `trofeo_lcd.exe` next to the editor), with sample data (clock, CPU/GPU values, a song,
+- **The preview** at the top is drawn by `aperture-display` itself (it needs
+  `aperture-display.exe` next to the editor), with sample data (clock, CPU/GPU values, a song,
   ...), so backgrounds, effects, layouts, tiles, colors and fonts look exactly as on the
   display. Choose *Nothing playing* / *Music playing (spectrum)* / *Music card* to see the other
   states, *Animate* to see the movement, and the layout selector to see each screen
   of a rotation.
 - **Sections** on the left cover everything in this guide. An asterisk marks the settings
-  that need a restart of `trofeo_lcd`; a number shows how many settings of that section
+  that need a restart of `aperture-display`; a number shows how many settings of that section
   you changed. A setting you leave at its default is not written to the file; the small
   `x` next to a setting removes it from the file again. *Raw file* shows the text of the
   file, for anything the form does not cover.
 - **Saving** keeps your comments and every line the editor does not touch, writes the
   changes it makes under a "Added by the settings editor" comment (or in place, when the
   key is already in the file), and copies the old file to `trofeo.conf.bak` the first time you save in each session.
-  A running `trofeo_lcd` applies the saved changes within a second (hot reload).
+  A running `aperture-display` applies the saved changes within a second (hot reload).
 - If the preview shows a red message, that is the real program refusing a value, in its
   own words; nothing is saved until you press *Save*.
-- The editor is not resident: close it when you are done, `trofeo_lcd` does not need it.
+- The editor is not resident: close it when you are done, `aperture-display` does not need it.
   On Linux the file dialogs are replaced by a text box with the path.
 
 ## How settings work
@@ -651,7 +651,7 @@ be reflected smoothly). Requires OpenRGB running with **Settings → SDK
 Server → Enable**. Until a matching device is found, falls back to `color`.
 
 ```
-trofeo_lcd.exe --openrgb-device Aorus --openrgb-poll-ms 200
+aperture-display.exe --openrgb-device Aorus --openrgb-poll-ms 200
 ```
 
 ## Weather
@@ -853,7 +853,7 @@ background = C:\Pictures\bg.jpg
 | `layout_spectrum` | `--layout-spectrum` | `true`/`false` | `false` |
 | `layout_hold_on_music` | `--layout-hold-on-music` | `true`/`false` | `false` |
 
-Names (`trofeo_lcd.exe --layout list` prints these with descriptions):
+Names (`aperture-display.exe --layout list` prints these with descriptions):
 `default, default2, cpu-gpu, temps, overview, grid6, clock-center, io, music,
 gaming, cpu, gpu, weather, news`.
 
@@ -906,7 +906,7 @@ No `trofeo.conf` key for this one either — global hotkey (works even without
 focus) that saves the current LCD frame as a lossless PNG to the Desktop.
 
 ```
-trofeo_lcd.exe --screenshot-key f9
+aperture-display.exe --screenshot-key f9
 ```
 
 ## Hide the console window — command-line only *(restart required)*
@@ -921,7 +921,7 @@ check `trofeo-errors.txt` next to the executable for config problems, since
 nothing else prints anywhere visible.
 
 ```
-trofeo_lcd.exe --hide-console
+aperture-display.exe --hide-console
 ```
 
 ## Other flags (not settings, but useful)
@@ -972,7 +972,7 @@ silence_threshold = 0.001
 ```
 
 ```
-trofeo_lcd.exe --idle-fps 1 --active-fps 20
+aperture-display.exe --idle-fps 1 --active-fps 20
 ```
 
 ## Everything at a glance
@@ -1056,10 +1056,10 @@ fps_monitor = true
 
 ```
 :: launch shortcut / script, combining the command-line-only options above
-trofeo_lcd.exe --screenshot-key f9 --openrgb-device Aorus --hide-console
+aperture-display.exe --screenshot-key f9 --openrgb-device Aorus --hide-console
 ```
 
-See also [`trofeo.conf.example`](./trofeo.conf.example) for the same options
+See also [`trofeo.conf.example`](../../trofeo.conf.example) for the same options
 as inline comments you can uncomment directly, and the main
-[`README.md`](./README.md) for setup, second-monitor mode, and build
+[`README.md`](../../README.md) for setup, second-monitor mode, and build
 instructions.

@@ -6,10 +6,10 @@
 
 use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
-use trofeo_lcd::dxgi_capture::{self, CaptureResult, DxgiSession};
-use trofeo_lcd::png_save;
-use trofeo_lcd::config::{ConfigFile, Margins};
-use trofeo_lcd::{hotkey, Framebuffer, LyLcd, Orientation};
+use aperture::dxgi_capture::{self, CaptureResult, DxgiSession};
+use aperture::png_save;
+use aperture::config::{ConfigFile, Margins};
+use aperture::{hotkey, Framebuffer, LyLcd, Orientation};
 
 const DEFAULT_ACTIVE_FPS: f32 = 30.0;
 const DEFAULT_IDLE_FPS: f32 = 10.0;
@@ -26,7 +26,7 @@ struct Config {
     /// Orientation of the captured canvas (portrait = display mounted upright).
     orientation: Orientation,
     /// Size of the panel's picture (landscape).
-    panel: trofeo_lcd::Resolution,
+    panel: aperture::Resolution,
     /// Extra 180° rotation (upside-down screen).
     flip: bool,
     margins: Margins,
@@ -39,9 +39,9 @@ struct Config {
 
 fn print_help() {
     println!(
-        "trofeo_screen — Second Monitor Streamer for the Thermalright Trofeo Vision LCD (9.16 / 11.3 inch)\n\n\
+        "aperture-screen — Second Monitor Streamer for the Thermalright Trofeo Vision LCD (9.16 / 11.3 inch)\n\n\
         USAGE:\n\
-        \x20 trofeo_screen [OPTIONS]\n\n\
+        \x20 aperture-screen [OPTIONS]\n\n\
         OPTIONS:\n\
         \x20 -l, --list-displays       List all detected monitors then exit\n\
         \x20 -d, --display <INDEX>     Index of the monitor to stream to the LCD\n\
@@ -178,7 +178,7 @@ fn parse_args() -> Result<Config> {
         Some(f) => f,
         None => file.get_bool("flip").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(false),
     };
-    let panel = trofeo_lcd::config::panel_from(
+    let panel = aperture::config::panel_from(
         panel_cli.as_deref().or(file.get("panel")),
         panel_size_cli.as_deref().or(file.get("panel_size")),
     )
@@ -224,7 +224,7 @@ fn hide_console_window() -> Result<()> {
     Ok(())
 }
 
-fn show_displays(panel: trofeo_lcd::Resolution) -> Result<()> {
+fn show_displays(panel: aperture::Resolution) -> Result<()> {
     println!("Checking connected monitors...");
     let displays = dxgi_capture::list_displays()?;
     if displays.is_empty() {
@@ -317,7 +317,7 @@ fn main() -> Result<()> {
         Ok(s) => s,
         Err(e) => {
             eprintln!("\nFAILED to initialize monitor capture: {e}");
-            eprintln!("Run 'trofeo_screen --list-displays' to check the available monitors.");
+            eprintln!("Run 'aperture-screen --list-displays' to check the available monitors.");
             bail!(e);
         }
     };
@@ -343,7 +343,7 @@ fn main() -> Result<()> {
         .inner(resolution.width, resolution.height)
         .map_err(|e| anyhow::anyhow!(e))?;
     let use_margins = !config.margins.is_zero();
-    let mut inner = Framebuffer::new(trofeo_lcd::Resolution::new(
+    let mut inner = Framebuffer::new(aperture::Resolution::new(
         if use_margins { in_w } else { 1 },
         if use_margins { in_h } else { 1 },
     ));
@@ -359,7 +359,7 @@ fn main() -> Result<()> {
         // isn't focused). The saved frame is the last one that was displayed.
         if let Some(h) = &snap_hotkey {
             if hotkey::triggered(h.id) && last_snap.elapsed() >= SNAP_MIN_INTERVAL {
-                match png_save::save(&fb, "trofeo_screen") {
+                match png_save::save(&fb, "aperture-screen") {
                     Ok(p) => println!("Screenshot saved: {}", p.display()),
                     Err(e) => eprintln!("Failed to save screenshot: {e}"),
                 }

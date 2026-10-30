@@ -1,4 +1,4 @@
-//! The table of settings shown by the settings editor (`trofeo_config`): for every key of
+//! The table of settings shown by the settings editor (`aperture-config`): for every key of
 //! `trofeo.conf` its section, a label and a hint in English and Italian, the kind of value
 //! (a switch, a choice, a number in a range, a color, ...) and the default.
 //!
@@ -47,7 +47,7 @@ pub struct Field {
     pub default: String,
     /// Shown only while `key` has one of these values (the effective one: the file's, or the default).
     pub when: Option<(&'static str, &'static [&'static str])>,
-    /// Changing it needs a restart of `trofeo_lcd`.
+    /// Changing it needs a restart of `aperture-display`.
     pub restart: bool,
 }
 

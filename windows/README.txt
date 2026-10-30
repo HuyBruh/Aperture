@@ -1,21 +1,28 @@
-TROFEO PRO DASHBOARD - Windows package
-======================================
-1. Close the official TRCC software (two programs cannot drive the LCD at once).
-2. Double-click  install.bat  (accept the UAC prompt). It checks the display, installs the PawnIO
-   sensor driver if needed, starts the dashboard now and at every logon, then opens HuyBruh Dash.
-3. HuyBruh Dash (huybruh_dash.exe): pick a layout, colors, flip 180, brightness, clock,
-   game mode, night mode and heat alert, in English or Vietnamese. Changes show instantly.
-   Its "Sensors & help" page explains anything that is missing (CPU temperature, fan, hotspot).
+APERTURE
+A quieter view of your system.
 
-Other files
-  trofeo.conf          Settings (HuyBruh Dash edits it for you).
-  restart.bat          Restart the display.      uninstall.bat   Remove autostart and stop it.
-  preview.bat          Render the current look to _preview\preview.png (no hardware needed).
+GET STARTED
+Open Aperture.bat to choose a layout, palette and display settings.
+The settings window uses sample data for its layout previews.
 
-Optional readings
-  CPU temperature : PawnIO driver (installed by install.bat) - AMD Ryzen and Intel Core.
-  CPU fan speed   : LibreHardwareMonitor (free) with Options -> Remote Web Server -> Run,
-                    or HWiNFO with Settings -> Shared Memory Support.
-  FPS             : needs Administrator (the autostart task takes care of it).
+MAINTENANCE
+scripts\install.bat    Enable automatic startup and set up sensor drivers.
+scripts\restart.bat    Restart the display service.
+scripts\preview.bat    Save a sample display image.
+scripts\uninstall.bat  Disable automatic startup.
+Windows may ask for administrator permission for maintenance actions.
 
-Source code and docs: https://github.com/HuyBruh/trofeo-lcd-rs      License: GPL-3.0-or-later
+FOLDER GUIDE
+assets\   Application icons and font licenses.
+docs\     Configuration, migration and validation notes.
+scripts\  Setup and maintenance tools.
+trofeo.conf is the editable configuration. Keep the entire folder together.
+aperture-display.exe and trofeo-status.txt are used by the display service.
+
+SENSORS
+Close Thermalright TRCC before starting Aperture.
+Unavailable readings show --. CPU fan RPM may require LibreHardwareMonitor
+or HWiNFO. Use Sensors & help in the settings window for diagnostics.
+
+LICENSE
+See LICENSE and NOTICE.md. Source: https://github.com/HuyBruh/Aperture

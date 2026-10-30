@@ -48,13 +48,13 @@ use chrono::{Local, Timelike};
 use rustfft::num_complex::Complex32;
 use rustfft::FftPlanner;
 use sysinfo::System;
-use trofeo_lcd::background::Background;
-use trofeo_lcd::config::{ConfigFile, Margins};
-use trofeo_lcd::i18n::Lang;
-use trofeo_lcd::layout::{Anchor, BgLayout, Fit, Show};
-use trofeo_lcd::i18n;
-use trofeo_lcd::{Framebuffer, LyLcd, Orientation};
-use trofeo_lcd::{hotkey, png_save};
+use aperture::background::Background;
+use aperture::config::{ConfigFile, Margins};
+use aperture::i18n::Lang;
+use aperture::layout::{Anchor, BgLayout, Fit, Show};
+use aperture::i18n;
+use aperture::{Framebuffer, LyLcd, Orientation};
+use aperture::{hotkey, png_save};
 
 /// Number of EQ bars drawn.
 const NUM_BARS: usize = 48;
@@ -195,7 +195,7 @@ struct Config {
     /// from `--orientation` or `orientation = ...` in trofeo.conf.
     orientation: Orientation,
     /// Size of the panel's picture (landscape): `panel` / `panel_size`.
-    panel: trofeo_lcd::Resolution,
+    panel: aperture::Resolution,
     /// Neither `panel` nor `panel_size` set: the model recognised at the handshake decides.
     panel_auto: bool,
     /// Extra 180° rotation (`--flip` / `flip = true`), if the result comes out upside down.
@@ -233,7 +233,7 @@ struct Config {
     bg_layout: BgLayout,
     ui: UiOptions,
     /// `--preview-png`: draw ONE frame with sample data into a PNG and exit (used by the
-    /// settings editor `trofeo_config` for its live preview; nothing is sent to the LCD).
+    /// settings editor `aperture-config` for its live preview; nothing is sent to the LCD).
     preview: Option<PreviewReq>,
 }
 
@@ -260,7 +260,7 @@ enum PreviewState {
 
 fn print_help() {
     println!(
-        "Usage: trofeo_lcd [OPTIONS]\n\
+        "Usage: aperture-display [OPTIONS]\n\
          \n\
          The screen's send FPS is adaptive: it drops to --idle-fps when no\n\
          sound is detected, and rises to --active-fps as soon as there's sound again.\n\
@@ -1439,7 +1439,7 @@ fn is_silent(samples: &[f32], threshold: f32) -> bool {
 
 /// Everything that depends on orientation, margins and background (rebuilt on reload).
 struct Display {
-    resolution: trofeo_lcd::Resolution,
+    resolution: aperture::Resolution,
     background: Option<Background>,
     idle_fps_effective: f32,
     composite: bool,
@@ -1455,7 +1455,7 @@ fn build_display(config: &Config) -> anyhow::Result<Display> {
         .margins
         .inner(resolution.width, resolution.height)
         .map_err(|e| anyhow::anyhow!(e))?;
-    let ui_resolution = trofeo_lcd::Resolution::new(ui_w, ui_h);
+    let ui_resolution = aperture::Resolution::new(ui_w, ui_h);
     // An animated effect (plasma, aurora, ...) takes the place of an image/video background.
     let effect_on = config.ui.effect.style.is_some();
     if effect_on && config.background.is_some() {
@@ -1492,7 +1492,7 @@ fn build_display(config: &Config) -> anyhow::Result<Display> {
     };
     let composite = background.is_some() || effect_on || config.background_color.is_some() || !config.margins.is_zero() || config.ui.panel_opacity < 100;
     let fb = Framebuffer::new(resolution);
-    let ui = Framebuffer::new(if composite { ui_resolution } else { trofeo_lcd::Resolution::new(1, 1) });
+    let ui = Framebuffer::new(if composite { ui_resolution } else { aperture::Resolution::new(1, 1) });
     Ok(Display { resolution, background, idle_fps_effective, composite, fb, ui })
 }
 
@@ -1563,7 +1563,7 @@ fn main() -> anyhow::Result<()> {
         println!("ADL (AMD) full: {amd:?}");
         print!("{}", amd_sensor.dump());
         println!("System drive: {:?}", sysextra::read_disk());
-        println!("External sensors (HWiNFO / LibreHardwareMonitor): {:?}", trofeo_lcd::sensors_ext::read_any());
+        println!("External sensors (HWiNFO / LibreHardwareMonitor): {:?}", aperture::sensors_ext::read_any());
         let s = System::new_all();
         println!("CPU: {:?} -> {:?}, cores {:?}/{}", s.cpus().first().map(|c| c.brand().to_string()), sysextra::clean_cpu_name(s.cpus().first().map(|c| c.brand()).unwrap_or("")), s.physical_core_count(), s.cpus().len());
         if let Some(n) = gpu_nvml::NvSensor::new() {
@@ -1607,9 +1607,9 @@ fn main() -> anyhow::Result<()> {
     hs.rotation = config.orientation.output_rotation(config.flip);
     hs.brightness = config.brightness;
     println!("Connected: {:?}, PM={} SUB={}", lcd.variant(), hs.pm, hs.sub);
-    trofeo_lcd::set_detected_panel(trofeo_lcd::panel_from_handshake(&hs.raw_response));
+    aperture::set_detected_panel(aperture::panel_from_handshake(&hs.raw_response));
     if config.panel_auto {
-        if let Some(p) = trofeo_lcd::detected_panel() {
+        if let Some(p) = aperture::detected_panel() {
             config.panel = p.resolution();
             println!("Panel recognised from the handshake: Trofeo Vision 11.3\" ({}x{})", config.panel.width, config.panel.height);
         }
@@ -1873,7 +1873,7 @@ fn main() -> anyhow::Result<()> {
         // what's shown on the LCD screen.
         if let Some(h) = &snap_hotkey {
             if hotkey::triggered(h.id) && last_snap.elapsed() >= Duration::from_millis(500) {
-                match png_save::save(&fb, "trofeo_lcd") {
+                match png_save::save(&fb, "aperture-display") {
                     Ok(p) => println!("Screenshot saved: {}", p.display()),
                     Err(e) => eprintln!("Failed to save screenshot: {e}"),
                 }
@@ -2147,7 +2147,7 @@ fn main() -> anyhow::Result<()> {
                         "builtin"
                     } else if ext_ok {
                         match extra.ext.as_ref().map(|(s, _)| *s) {
-                            Some(trofeo_lcd::sensors_ext::Source::Hwinfo) => "hwinfo",
+                            Some(aperture::sensors_ext::Source::Hwinfo) => "hwinfo",
                             _ => "lhm",
                         }
                     } else {
@@ -2158,8 +2158,8 @@ fn main() -> anyhow::Result<()> {
                 set_status("cpu_fan", src(false, ext_fan.is_some()));
                 set_status("gpu_hotspot", src(latest_gpu_data.temp_hotspot_c.is_some(), gpu_full.temp_hotspot_c.is_some()));
                 set_status("ext", match extra.ext.as_ref().map(|(s, _)| *s) {
-                    Some(trofeo_lcd::sensors_ext::Source::Hwinfo) => "hwinfo",
-                    Some(trofeo_lcd::sensors_ext::Source::Lhm) => "lhm",
+                    Some(aperture::sensors_ext::Source::Hwinfo) => "hwinfo",
+                    Some(aperture::sensors_ext::Source::Lhm) => "lhm",
                     None => "none",
                 });
             }
@@ -2283,7 +2283,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Draws ONE frame of the interface with made-up sensor values into a PNG and returns — the
-/// settings editor (`trofeo_config`) shows it as its live preview, so what it displays is
+/// settings editor (`aperture-config`) shows it as its live preview, so what it displays is
 /// exactly what the program draws. It follows the same order as the main loop: background,
 /// tiles, the screen itself (layout / clock / spectrum / music card), the pixel game, the
 /// status lines and the ticker. Nothing is sent to the LCD and no sensor or audio device is opened.
@@ -2317,8 +2317,8 @@ fn keep_alive(args: Vec<String>) -> anyhow::Result<()> {
         }
         match cmd.status() {
             Ok(s) if s.success() => return Ok(()),
-            Ok(s) => eprintln!("trofeo_lcd stopped ({s}): starting it again in 3 s..."),
-            Err(e) => eprintln!("could not start trofeo_lcd ({e}): trying again in 3 s..."),
+            Ok(s) => eprintln!("aperture-display stopped ({s}): starting it again in 3 s..."),
+            Err(e) => eprintln!("could not start aperture-display ({e}): trying again in 3 s..."),
         }
         std::thread::sleep(Duration::from_secs(3));
     }
@@ -2461,7 +2461,10 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
                 weather_fc.forecast.push(weather::DailyForecast { weekday: wd, icon: ic, temp_max_c: hi, temp_min_c: lo, precip_prob: None });
             }
         }
-        let data = pro::Data {
+        // Fixture switches only affect this hardware-free preview path.
+        let preview_empty = std::env::var_os("APERTURE_PREVIEW_EMPTY").is_some();
+        let empty_gpu = gpu_amd::GpuAmdData::default();
+        let mut data = pro::Data {
             cpu_name: "AMD Ryzen 7 5800X",
             cores: (8, 16),
             cpu_pct: wd.cpu_pct,
@@ -2481,6 +2484,17 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
             uptime_s: 3 * 86_400 + 4 * 3600 + 12 * 60,
             track: (req.state != PreviewState::Idle).then_some(&track),
         };
+        if preview_empty {
+            data.cpu_temp = None;
+            data.cpu_power = None;
+            data.cpu_mhz = None;
+            data.cpu_fan_rpm = None;
+            data.gpu_pct = None;
+            data.gpu = &empty_gpu;
+            data.disk = None;
+            data.weather = None;
+            data.track = None;
+        }
         let mut screen = pro::ProScreen::new();
         screen.seed_demo_history();
         // TROFEO_PREVIEW_VOLUME=62 (or "mute") draws the volume pop-up too.
@@ -3853,7 +3867,7 @@ mod layout_tests {
     /// orientations, the panel output has the right size and the game strip still fits.
     #[test]
     fn draws_on_the_11_3_panel() {
-        let panel = trofeo_lcd::TROFEO_VISION_11_3;
+        let panel = aperture::TROFEO_VISION_11_3;
         let data = layouts::WidgetData {
             cpu_pct: 37.0, cpu_temp: Some(64.0), cpu_power: Some(88.0), cpu_mhz: Some(4900),
             gpu_pct: Some(83.0), gpu_temp: Some(71), gpu_power: Some(245), fps: Some(144),
@@ -3989,7 +4003,7 @@ mod layout_tests {
         for def in layouts::LAYOUTS {
             let bg = Background::load(path, canvas, 40, 30.0, None, &BgLayout::default()).unwrap();
             let mut bg_fb = match &bg {
-                trofeo_lcd::background::Background::Static(f) => {
+                aperture::background::Background::Static(f) => {
                     Framebuffer::from_rgb(f.width(), f.height(), f.as_bytes().to_vec()).unwrap()
                 }
                 _ => unreachable!("a static image always loads as Background::Static"),
@@ -4337,7 +4351,7 @@ mod layout_tests {
 
     #[test]
     fn schema_values_are_accepted_by_the_program() {
-        use trofeo_lcd::schema::{fields, Kind};
+        use aperture::schema::{fields, Kind};
         let mut tried = 0;
         for f in fields() {
             // keys the program only reads on the command-line path (parse_args) are range-checked there
@@ -4383,7 +4397,7 @@ mod layout_tests {
 
     #[test]
     fn schema_names_match_the_program() {
-        use trofeo_lcd::schema::*;
+        use aperture::schema::*;
         // layouts
         let names: Vec<&str> = layouts::LAYOUTS.iter().map(|l| l.name).collect();
         assert_eq!(LAYOUT_NAMES.iter().map(|(n, _, _)| *n).collect::<Vec<_>>(), names);
@@ -4768,7 +4782,7 @@ mod layout_tests {
         let canvas = Orientation::Landscape.canvas();
         let margins = Margins { top: 40, bottom: 10, left: 30, right: 30 };
         let (iw, ih) = margins.inner(canvas.width, canvas.height).unwrap();
-        let mut ui = Framebuffer::new(trofeo_lcd::Resolution::new(iw, ih));
+        let mut ui = Framebuffer::new(aperture::Resolution::new(iw, ih));
         ui.clear(1, 0, 2);
         let sys = System::new_all();
         let gpu = gpu_amd::GpuAmdData::default();

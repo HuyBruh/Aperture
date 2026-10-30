@@ -7,7 +7,7 @@ by Lexonight1.
 
 It is distributed, like the projects above, under the
 **[GNU GPL v3.0-or-later](./LICENSE)**. Modifying and redistributing this
-software is welcome and encouraged under the terms of that license — this
+software is welcome and encouraged under the terms of that license â€” this
 file exists only to keep the provenance of the code clear, not to add any
 restriction beyond the GPL itself.
 
@@ -22,7 +22,7 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
 - Added a **weather module**: current temperature + a stylized pixel-art
   condition icon, via Open-Meteo, with automatic IP-based geolocation and an
   optional fixed-city override (`weather_city`), shown as a per-item line
-  and/or as its own full-panel layout (`layout = weather`) — which also
+  and/or as its own full-panel layout (`layout = weather`) â€” which also
   includes a **7-day forecast strip** (day, icon, high/low, rain probability).
 - Added **per-item styling**: every status item (CPU, GPU, RAM, clock,
   weather, ...) can be given its own size, position, color and backdrop
@@ -64,9 +64,9 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
   water level is adjustable (`effect_level`) and there are three water color presets.
 - Added a **light (white) variant** of the matrix, rain and aquarium backgrounds
   (`effect_theme = light`).
-- Added a **graphical settings editor** (`trofeo_config`, built with egui): a separate
+- Added a **graphical settings editor** (`aperture-config`, built with egui): a separate
   small program that only creates and edits `trofeo.conf` (comments preserved), with a live
-  preview drawn by `trofeo_lcd` itself (`--preview-png`). It uses the
+  preview drawn by `aperture-display` itself (`--preview-png`). It uses the
   [egui/eframe](https://github.com/emilk/egui) GUI library (MIT or Apache-2.0) and, on
   Windows, [rfd](https://github.com/PolyMeilex/rfd) (MIT) for the file dialogs.
 - Added an **OpenRGB** sync option, a global **screenshot hotkey**
@@ -78,7 +78,7 @@ Starting from the `sukualam/trofeo-lcd` codebase, this fork has:
   releases.
 
 None of this would exist without the original reverse-engineering and
-implementation work in the two upstream projects — thank you to their
+implementation work in the two upstream projects â€” thank you to their
 authors.
 
 ## Pro dashboard (this repository)
@@ -94,3 +94,8 @@ released under the same GPL-3.0-or-later license.
 
 - `src/resources/IntelMSR.bin`: official signed PawnIO module from [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) 0.2.11, LGPL-2.1-or-later, embedded unchanged.
 - `assets/Inter-*-subset.ttf`: subsets of [Inter](https://github.com/rsms/inter), SIL OFL 1.1 (`assets/Inter-OFL.txt`).
+
+
+## Aperture 4.0
+
+Aperture is the continuation of HuyBruh Dash by Huy. The 4.0 rework adds a new brand, a coordinated palette system, five layouts, design-source tooling and a revised settings gallery. Implemented with Codex assistance. Existing upstream provenance and all license terms remain unchanged.

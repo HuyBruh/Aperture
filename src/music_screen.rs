@@ -22,7 +22,7 @@ use crate::{fit_scale, Marquee, UiOptions, MARQUEE_GAP};
 use image::imageops::{self, FilterType};
 use image::RgbImage;
 use std::sync::Arc;
-use trofeo_lcd::{Framebuffer, Resolution};
+use aperture::{Framebuffer, Resolution};
 
 /// Used when there is no cover to take a color from (Spotify green).
 pub const DEFAULT_ACCENT: Rgb = (0x1D, 0xB9, 0x54);
@@ -1363,7 +1363,7 @@ mod tests {
             for (name, r) in [("cover", g.cover), ("text", g.text), ("spectrum", g.spectrum)] {
                 assert!(r.x + r.w <= w && r.y + r.h <= h, "{name} {r:?} outside {w}x{h}");
             }
-            let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(w, h));
+            let mut fb = Framebuffer::new(aperture::Resolution::new(w, h));
             let mut m = MusicScreen::new();
             m.draw(&mut fb, &track("Song", "Band", Some(solid_cover((200, 40, 40), 64)), Some(timeline(30, 200))), &bars(), &bars(), &opts());
             if let Ok(dir) = std::env::var("TROFEO_DUMP_DIR") {

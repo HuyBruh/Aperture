@@ -57,7 +57,14 @@ pub struct Theme {
     time: Rgb,
 }
 
+include!("dashboard/palettes.rs");
+
 pub const THEMES: &[Theme] = &[
+    APERTURE_THEMES[0],
+    APERTURE_THEMES[1],
+    APERTURE_THEMES[2],
+    APERTURE_THEMES[3],
+    APERTURE_THEMES[4],
     // violet / cyan / pink on near-black (NZXT CAM-like)
     Theme {
         name: "nzxt", bg: (0, 0, 0), panel: (12, 13, 17), text: (242, 243, 246), muted: (168, 172, 184), dim: (118, 122, 136),
@@ -110,6 +117,12 @@ pub enum Style {
 /// Arrangement of the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
+    Axis,
+    Ledger,
+    Duet,
+    Orbit,
+    Atelier,
+
     /// Panels in a row (the first design).
     Classic,
     /// Car instrument cluster: two gauges and the clock in the middle.
@@ -159,12 +172,18 @@ pub enum Layout {
 }
 
 impl Layout {
+    pub const CURATED: [Layout; 7] = [Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid];
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 18] = [Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 23] = [Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
         match self {
+            Layout::Axis => "axis",
+            Layout::Ledger => "ledger",
+            Layout::Duet => "duet",
+            Layout::Orbit => "orbit",
+            Layout::Atelier => "atelier",
             Layout::Classic => "classic",
             Layout::Cockpit => "cockpit",
             Layout::Focus => "focus",
@@ -192,7 +211,7 @@ impl Layout {
     }
     /// The clean collection, drawn with Inter.
     pub fn clean(self) -> bool {
-        matches!(self, Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
+        matches!(self, Layout::Axis | Layout::Ledger | Layout::Duet | Layout::Orbit | Layout::Atelier | Layout::Focus | Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {
@@ -235,7 +254,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { layouts: vec![Layout::Classic], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false, game_layout: None, game_theme: None, night: None, night_theme: None, night_dim: 40, alert_cpu: 0, alert_gpu: 0, clock12: false, fan_sensor: String::new() }
+        Settings { layouts: vec![Layout::Axis], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false, game_layout: None, game_theme: None, night: None, night_theme: None, night_dim: 40, alert_cpu: 0, alert_gpu: 0, clock12: false, fan_sensor: String::new() }
     }
 }
 
@@ -284,33 +303,14 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Rgb {
 }
 
 impl Theme {
-    /// A full theme grown from one color: the CPU takes the color itself, the others are
-    /// spread around the color wheel.
+    /// A single accent on neutral surfaces. Very dark accents are lifted for legibility.
     pub fn from_accent(c: Rgb) -> Theme {
-        let (h, s, _) = rgb_to_hsv(c);
-        let s = s.clamp(0.5, 0.9);
-        let pair = |dh: f32| {
-            let b = hsv_to_rgb((h + dh).rem_euclid(360.0), s, 0.96);
-            [b, lerp_rgb(b, WHITE, 0.45)]
-        };
-        let cpu = [c, lerp_rgb(c, WHITE, 0.45)];
-        let net = pair(205.0);
-        Theme {
-            name: "custom",
-            bg: (0, 0, 0),
-            panel: (12, 13, 17),
-            text: (242, 243, 246),
-            muted: (168, 172, 184),
-            dim: (118, 122, 136),
-            cpu,
-            gpu: pair(150.0),
-            ram: pair(-60.0),
-            ssd: pair(45.0),
-            net,
-            up: net[1],
-            fps: (163, 230, 53),
-            time: (255, 255, 255),
-        }
+        let c = if c.0.max(c.1).max(c.2) < 120 { lerp_rgb(c, WHITE, 0.5) } else { c };
+        let mut t = THEMES[0];
+        t.name = "custom";
+        t.cpu = [c,c]; t.gpu = [c,c]; t.ram = [c,c];
+        t.ssd = [c,c]; t.net = [c,c]; t.up = c; t.fps = c;
+        t
     }
 }
 
@@ -349,7 +349,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
         let mut list = Vec::new();
         for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty()) {
             if name == "all" {
-                list.extend_from_slice(THEMES);
+                list.extend_from_slice(&THEMES[..5]);
                 continue;
             }
             list.push(theme_of(&name, accent, "pro_theme")?);
@@ -411,7 +411,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
         let mut list = Vec::new();
         for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty()) {
             if name == "all" {
-                list.extend_from_slice(&Layout::ALL);
+                list.extend_from_slice(&Layout::CURATED);
                 continue;
             }
             if name == "portrait" {
@@ -1013,7 +1013,7 @@ impl ProScreen {
         let a_out = ((SPLASH_SECS - t) / 0.45).clamp(0.0, 1.0);
         let a = (255.0 * a_in * a_out) as u8;
         let mark = 96.0 * k;
-        let name = "HuyBruh Dash";
+        let name = "Aperture";
         let ncap = 44.0 * k;
         let sub = "for Thermalright Trofeo Vision";
         let scap = 15.0 * k;
@@ -1021,12 +1021,17 @@ impl ProScreen {
         let total = mark + 34.0 * k + nw;
         let x0 = ((w - total) / 2.0).round();
         let cy = h / 2.0;
-        let colors = [(124, 92, 255), (34, 211, 238)];
-        p.layer.fill_rrect((x0, cy - mark / 2.0, mark, mark), 24.0 * k, &move |tt| gradient_at(&colors, tt), a);
-        let hb = "HB";
-        let hcap = 38.0 * k;
-        let hw = p.width(hb, hcap, W::Medium);
-        p.text(x0 + (mark - hw) / 2.0, cy + hcap / 2.0, hb, hcap, W::Medium, WHITE, a);
+        let colors = [th().cpu[0], th().cpu[0]];
+        let _ = colors;
+        let ly = cy - mark / 2.0;
+        let c = th().cpu[0];
+        for (a0,b0) in [((0.12,0.38),(0.12,0.12)),((0.12,0.12),(0.38,0.12)),
+            ((0.62,0.12),(0.88,0.12)),((0.88,0.12),(0.88,0.38)),
+            ((0.88,0.62),(0.88,0.88)),((0.88,0.88),(0.62,0.88)),
+            ((0.38,0.88),(0.12,0.88)),((0.12,0.88),(0.12,0.62)),
+            ((0.38,0.62),(0.62,0.38))] {
+            capsule(&mut p,(x0+a0.0*mark,ly+a0.1*mark),(x0+b0.0*mark,ly+b0.1*mark),2.8*k,c,a);
+        }
         let tx = x0 + mark + 34.0 * k;
         p.text(tx, cy + 4.0 * k, name, ncap, W::Medium, WHITE, a);
         p.text(tx, cy + 4.0 * k + 18.0 * k + scap, sub, scap, W::Regular, (150, 155, 166), a);
@@ -1038,8 +1043,17 @@ impl ProScreen {
             out.composite_onto(fb, area.0, area.1);
             layer.clear();
             let mut p = Painter { layer: &mut layer, font: FontStyle::Smooth };
-            p.layer.fill_rrect((x0, cy - mark / 2.0, mark, mark), 24.0 * k, &move |tt| gradient_at(&colors, tt), a);
-            p.text(x0 + (mark - hw) / 2.0, cy + hcap / 2.0, hb, hcap, W::Medium, WHITE, a);
+        let _ = colors;
+        let ly = cy - mark / 2.0;
+        let c = th().cpu[0];
+        for (a0,b0) in [((0.12,0.38),(0.12,0.12)),((0.12,0.12),(0.38,0.12)),
+            ((0.62,0.12),(0.88,0.12)),((0.88,0.12),(0.88,0.38)),
+            ((0.88,0.62),(0.88,0.88)),((0.88,0.88),(0.62,0.88)),
+            ((0.38,0.88),(0.12,0.88)),((0.12,0.88),(0.12,0.62)),
+            ((0.38,0.62),(0.62,0.38))] {
+            capsule(&mut p,(x0+a0.0*mark,ly+a0.1*mark),(x0+b0.0*mark,ly+b0.1*mark),2.8*k,c,a);
+        }
+
             p.text(tx, cy + 4.0 * k, name, ncap, W::Medium, WHITE, a);
             p.text(tx, cy + 4.0 * k + 18.0 * k + scap, sub, scap, W::Regular, (150, 155, 166), a);
         }
@@ -2731,4 +2745,26 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
     }
     let big = Scale { m: sc.m * 1.3, s: sc.s * 1.25, ..*sc };
     now_playing_compact(p, (x, y + sh - 90.0 * k, sw, 90.0 * k), &big, d, cover, true);
+}
+
+#[cfg(test)]
+mod aperture_tests {
+    use super::*;
+    #[test]
+    fn collection_rotation_and_legacy_keys_are_compatible() {
+        let s=parse(&ConfigFile::parse("pro_layout = all\npro_theme = all\n").unwrap()).unwrap();
+        assert_eq!(s.layouts, Layout::CURATED.to_vec());
+        assert_eq!(s.themes.len(),5);
+        for key in ["focus","grid","cockpit","stack","blueprint"] {
+            let text=format!("pro_layout = {key}\npro_theme = neon\n");
+            assert!(parse(&ConfigFile::parse(&text).unwrap()).is_ok());
+        }
+    }
+    #[test]
+    fn dark_custom_accents_are_legible_and_coordinated() {
+        let t=Theme::from_accent((0,0,0));
+        assert!(t.cpu[0].0>=120);
+        assert_eq!(t.cpu,t.gpu);
+        assert_eq!(t.gpu,t.ram);
+    }
 }

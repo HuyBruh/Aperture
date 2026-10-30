@@ -17,7 +17,7 @@
 //! rate) and is deterministic for a given seed, which is what the tests use.
 
 use crate::weather_icon::WeatherIcon;
-use trofeo_lcd::Framebuffer;
+use aperture::Framebuffer;
 
 pub type Rgb = (u8, u8, u8);
 
@@ -1872,7 +1872,7 @@ mod tests {
 
     #[test]
     fn weather_and_daytime_change_the_scene() {
-        use trofeo_lcd::{Framebuffer, Resolution};
+        use aperture::{Framebuffer, Resolution};
         let render = |inp: &Inputs| {
             let mut fb = Framebuffer::new(Resolution { width: 640, height: 171 });
             let mut g = Game::new(3);
@@ -1906,7 +1906,7 @@ mod tests {
 
     #[test]
     fn drawing_stays_inside_its_rectangle_and_never_panics() {
-        use trofeo_lcd::{Framebuffer, Resolution};
+        use aperture::{Framebuffer, Resolution};
         for (w, h) in [(1900u32, 169u32), (440, 260), (120, 90), (60, 50)] {
             let mut fb = Framebuffer::new(Resolution { width: w + 40, height: h + 40 });
             fb.clear(1, 2, 3);

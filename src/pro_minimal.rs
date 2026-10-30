@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "dashboard/collection.rs"]
+mod collection;
+
 type Hist<'a> = (&'a VecDeque<f32>, &'a VecDeque<f32>, &'a VecDeque<f32>);
 
 #[allow(clippy::too_many_arguments)]
@@ -210,9 +213,6 @@ fn sections<'a>(d: &Data, v: &Vm, hist: Hist<'a>) -> [Sec<'a>; 3] {
     ]
 }
 
-
-
-
 /// Small label with letter spacing (the Focus style).
 fn caps(p: &mut Painter, x: f32, base: f32, text: &str, cap: f32, c: Rgb, k: f32) -> f32 {
     spaced(p, x, base, &text.to_uppercase(), cap, W::Medium, c, 1.5 * k)
@@ -275,7 +275,6 @@ fn kv_h(lcap: f32, vcap: f32, k: f32) -> f32 {
     lcap + 9.0 * k + vcap
 }
 
-
 /// Thin trend line (no grid), for the clean designs.
 fn trend(p: &mut Painter, r: R, hist: &VecDeque<f32>, max: f32, colors: [Rgb; 2], k: f32) {
     let (x, y, w, h) = r;
@@ -326,7 +325,6 @@ fn bar(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, frac: Option<f32>, color
 fn date_line(p: &mut Painter, x: f32, base: f32, v: &Vm, cap: f32, c: Rgb, k: f32) -> f32 {
     caps(p, x, base, &format!("{}  \u{b7}  {}", v.wd, v.date), cap, c, k)
 }
-
 
 /// The next three days as three kv blocks.
 fn wx_days(p: &mut Painter, x: f32, top: f32, w: f32, v: &Vm, lcap: f32, vcap: f32, ink: &Ink, k: f32) {
@@ -1182,6 +1180,7 @@ fn player(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: H
 }
 
 pub(super) fn paint(layout: Layout, p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) -> bool {
+    if collection::paint(layout,p,w,h,sc,d,v,hist,cover) { return true; }
     match layout {
         Layout::Swiss => swiss(p, w, h, sc, d, v, cover),
         Layout::Grid => board(p, w, h, sc, d, v, hist, cover, Skin::Grid),

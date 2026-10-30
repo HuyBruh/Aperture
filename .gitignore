@@ -1,1 +1,8 @@
 target/
+dist/
+.cargo/config.toml
+trofeo.conf
+trofeo-status.txt
+trofeo-errors.txt
+__pycache__/
+*.pyc

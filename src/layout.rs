@@ -1,5 +1,5 @@
 //! Positioning (9 anchor points), visible elements, and background fit
-//! modes. Shared by `trofeo_lcd` and `background`.
+//! modes. Shared by `aperture-display` and `background`.
 
 /// Anchor in a 3x3 grid. `ax`/`ay`: 0 = left/top, 1 = center, 2 = right/bottom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

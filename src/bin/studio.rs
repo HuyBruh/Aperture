@@ -1,8 +1,8 @@
-//! `huybruh_dash` (HuyBruh Dash): the friendly settings app of the pro dashboard (English / Tiếng Việt).
+//! `huybruh_dash` (Aperture): the friendly settings app of the pro dashboard (English / Tiếng Việt).
 //!
-//! It edits `trofeo.conf` next to it; the running `trofeo_lcd` re-reads the file every
+//! It edits `trofeo.conf` next to it; the running `aperture-display` re-reads the file every
 //! second, so every change shows on the display right away. Pictures (the live preview and
-//! the layout thumbnails) are drawn by `trofeo_lcd.exe --preview-png`, so they always match
+//! the layout thumbnails) are drawn by `aperture-display.exe --preview-png`, so they always match
 //! the display. The "Sensors & help" page explains what is missing and how to fix it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -11,19 +11,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use trofeo_lcd::conf_edit::ConfDoc;
-use trofeo_lcd::sensors_ext::{self, Snapshot, Source};
+use aperture::conf_edit::ConfDoc;
+use aperture::sensors_ext::{self, Snapshot, Source};
 
 // ------------------------------------------------------------------------ look
 
-const BG: Color32 = Color32::from_rgb(11, 12, 15);
-const CARD: Color32 = Color32::from_rgb(20, 22, 27);
+const BG: Color32 = Color32::from_rgb(16, 18, 19);
+const CARD: Color32 = Color32::from_rgb(25, 28, 30);
 const CARD_HI: Color32 = Color32::from_rgb(27, 30, 36);
 const LINE: Color32 = Color32::from_rgb(38, 41, 49);
 const TEXT: Color32 = Color32::from_rgb(236, 238, 242);
 const MUTED: Color32 = Color32::from_rgb(150, 155, 166);
 const DIM: Color32 = Color32::from_rgb(100, 105, 116);
-const ACCENT: Color32 = Color32::from_rgb(92, 140, 255);
+const ACCENT: Color32 = Color32::from_rgb(137, 178, 151);
 const GOOD: Color32 = Color32::from_rgb(52, 199, 123);
 const WARN: Color32 = Color32::from_rgb(255, 176, 32);
 const BAD: Color32 = Color32::from_rgb(255, 84, 84);
@@ -116,6 +116,7 @@ enum Lang {
 
 // ------------------------------------------------------------------------ catalog
 
+#[derive(Clone, Copy)]
 struct LayoutInfo {
     key: &'static str,
     name: &'static str,
@@ -124,7 +125,14 @@ struct LayoutInfo {
     portrait: bool,
 }
 
+include!("../dashboard/studio_catalog.rs");
+
 const LAYOUTS: &[LayoutInfo] = &[
+    APERTURE_LAYOUTS[0],
+    APERTURE_LAYOUTS[1],
+    APERTURE_LAYOUTS[2],
+    APERTURE_LAYOUTS[3],
+    APERTURE_LAYOUTS[4],
     LayoutInfo { key: "focus", name: "Focus", en: "Huge numbers, nothing else", vi: "Số cực lớn, tối giản", portrait: false },
     LayoutInfo { key: "grid", name: "Grid", en: "Even tiles like phone widgets", vi: "Ô đều nhau như widget điện thoại", portrait: false },
     LayoutInfo { key: "stack", name: "Stack", en: "Three full-width rows, six readings each", vi: "Ba hàng ngang, mỗi hàng sáu thông số", portrait: false },
@@ -150,6 +158,7 @@ const LAYOUTS: &[LayoutInfo] = &[
     LayoutInfo { key: "blueprint", name: "Blueprint", en: "Technical drawing", vi: "Bản vẽ kỹ thuật", portrait: true },
 ];
 
+#[derive(Clone, Copy)]
 struct ThemeInfo {
     key: &'static str,
     name: &'static str,
@@ -157,6 +166,11 @@ struct ThemeInfo {
 }
 
 const THEMES: &[ThemeInfo] = &[
+    APERTURE_PALETTES[0],
+    APERTURE_PALETTES[1],
+    APERTURE_PALETTES[2],
+    APERTURE_PALETTES[3],
+    APERTURE_PALETTES[4],
     ThemeInfo { key: "nzxt", name: "NZXT", colors: [(124, 92, 255), (34, 211, 238), (244, 114, 182)] },
     ThemeInfo { key: "graphite", name: "Graphite", colors: [(150, 150, 158), (210, 210, 214), (255, 255, 255)] },
     ThemeInfo { key: "crimson", name: "Crimson", colors: [(220, 20, 50), (255, 99, 99), (251, 146, 60)] },
@@ -168,7 +182,7 @@ const THEMES: &[ThemeInfo] = &[
 // ------------------------------------------------------------------------ rendering
 
 fn find_main_exe() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "trofeo_lcd.exe" } else { "trofeo_lcd" };
+    let name = if cfg!(windows) { "aperture-display.exe" } else { "aperture-display" };
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let p = dir.join(name);
     p.is_file().then_some(p)
@@ -178,8 +192,8 @@ fn find_main_exe() -> Option<PathBuf> {
 fn render(exe: &Path, workdir: &Path, text: &str, layout: Option<&str>, music: bool, tag: &str) -> Option<egui::ColorImage> {
     let tmp = std::env::temp_dir();
     let id = std::process::id();
-    let conf = tmp.join(format!("huybruh_dash_{id}_{tag}.conf"));
-    let png = tmp.join(format!("huybruh_dash_{id}_{tag}.png"));
+    let conf = tmp.join(format!("aperture_{id}_{tag}.conf"));
+    let png = tmp.join(format!("aperture_{id}_{tag}.png"));
     let mut doc = ConfDoc::parse(text);
     doc.set("layout", "pro");
     doc.set("flip", "false");
@@ -327,8 +341,8 @@ fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
 
 #[cfg(windows)]
 fn process_running() -> bool {
-    let out = hidden(std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq trofeo_lcd.exe", "/NH"])).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("trofeo_lcd.exe")).unwrap_or(false)
+    let out = hidden(std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq aperture-display.exe", "/NH"])).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("aperture-display.exe")).unwrap_or(false)
 }
 
 #[cfg(not(windows))]
@@ -363,8 +377,8 @@ fn run_elevated(script: &str) {
     }
 }
 
-const RESTART_SCRIPT: &str = "Stop-ScheduledTask -TaskName TrofeoLCD -ErrorAction SilentlyContinue; Get-Process trofeo_lcd -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName TrofeoLCD";
-const PAWNIO_SCRIPT: &str = "winget install --id namazso.PawnIO -e --silent --accept-source-agreements --accept-package-agreements; Stop-ScheduledTask -TaskName TrofeoLCD -ErrorAction SilentlyContinue; Get-Process trofeo_lcd -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName TrofeoLCD";
+const RESTART_SCRIPT: &str = "Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay";
+const PAWNIO_SCRIPT: &str = "winget install --id namazso.PawnIO -e --silent --accept-source-agreements --accept-package-agreements; Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay";
 
 // ------------------------------------------------------------------------ app
 
@@ -416,7 +430,7 @@ impl App {
             std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("trofeo.conf"))).unwrap_or_else(|| PathBuf::from("trofeo.conf"))
         });
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|_| "layout = pro\npro_layout = focus\npro_theme = nzxt\n".to_string());
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|_| "layout = pro\npro_layout = axis\npro_theme = mineral\n".to_string());
         let doc = ConfDoc::parse(&text);
         let lang = match doc.get("studio_language").as_deref() {
             Some("vi") => Lang::Vi,
@@ -570,7 +584,7 @@ impl App {
         // thumbnails follow the colors (theme / style / clock): redraw when those change
         let key = format!(
             "{}|{}|{}|{}|{}",
-            self.get_or("pro_theme", "nzxt"),
+            self.get_or("pro_theme", "mineral"),
             self.get_or("pro_style", "cards"),
             self.get_or("pro_accent", ""),
             self.get_or("pro_clock", "24h"),
@@ -759,7 +773,7 @@ impl App {
                 ui.add(egui::Image::new((logo.id(), Vec2::new(34.0, 34.0))));
             }
             ui.add_space(2.0);
-            ui.label(RichText::new("HuyBruh Dash").font(font(20.0, Weight::Semibold)).color(TEXT));
+            ui.label(RichText::new("Aperture").font(font(20.0, Weight::Semibold)).color(TEXT));
             ui.label(RichText::new("for Trofeo Vision 9.16″").font(font(13.0, Weight::Regular)).color(DIM));
             ui.with_layout(ELayout::right_to_left(Align::Center), |ui| {
                 let cur = if self.lang == Lang::En { "en" } else { "vi" };
@@ -799,7 +813,7 @@ impl App {
             ui.put(rect, img);
         } else {
             let msg = if self.jobs.is_none() {
-                self.t("trofeo_lcd.exe was not found next to HuyBruh Dash", "Không tìm thấy trofeo_lcd.exe cạnh HuyBruh Dash")
+                self.t("aperture-display.exe was not found next to Aperture", "Không tìm thấy aperture-display.exe cạnh Aperture")
             } else {
                 self.t("Drawing the preview…", "Đang vẽ bản xem trước…")
             };
@@ -812,7 +826,7 @@ impl App {
             let msg = if let Some(e) = &self.save_error {
                 format!("{} {e}", self.t("Could not save:", "Không lưu được:"))
             } else if saved {
-                self.t("Live preview · changes are saved and shown on the display instantly", "Xem trước trực tiếp · thay đổi được lưu và hiện lên màn hình ngay").to_string()
+                self.t("Layout preview · sample data · settings saved automatically", "Xem trước bố cục · dữ liệu mẫu · tự lưu cài đặt").to_string()
             } else {
                 self.t("Saving…", "Đang lưu…").to_string()
             };
@@ -854,7 +868,7 @@ impl App {
                     ui.painter().rect_filled(rect, Rounding::same(9.0), CARD_HI);
                     ui.painter().rect_stroke(rect, Rounding::same(9.0), Stroke::new(1.0_f32, LINE));
                 } else if resp.hovered() {
-                    ui.painter().rect_filled(rect, Rounding::same(9.0), Color32::from_rgb(20, 22, 27));
+                    ui.painter().rect_filled(rect, Rounding::same(9.0), Color32::from_rgb(25, 28, 30));
                 }
                 ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, name, font(14.0, Weight::Medium), if on { TEXT } else { MUTED });
                 if resp.clicked() {
@@ -865,24 +879,28 @@ impl App {
     }
 
     fn page_layouts(&mut self, ui: &mut egui::Ui) {
-        let current = self.get_or("pro_layout", "classic");
-        section_title(ui, self.t("Landscape", "Màn hình nằm ngang"), self.t("Click a layout to use it. The new clean designs come first.", "Bấm vào một bố cục để dùng. Các mẫu tối giản mới ở đầu danh sách."));
-        let land: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait).collect();
-        if let Some(k) = self.grid(ui, &land, &current, 3) {
+        let current = self.get_or("pro_layout", "axis");
+        section_title(ui, self.t("The collection", "Bộ sưu tập"), self.t("Five new compositions, plus Focus and Grid. Designed for the 1920 × 462 display.", "Năm bố cục mới cùng Focus và Grid. Thiết kế cho màn 1920 × 462."));
+        let land: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && matches!(l.key,"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
+        if let Some(k) = self.grid(ui, &land, &current, 2) {
             self.set("pro_layout", &k);
         }
         ui.add_space(8.0);
         card(ui, |ui| {
             let mut on = current == "all";
-            let lbl = self.t("Rotate through every landscape layout", "Tự xoay vòng tất cả bố cục ngang").to_string();
+            let lbl = self.t("Rotate the Aperture collection", "Xoay vòng bộ sưu tập Aperture").to_string();
             let help = self.t("Changes layout every 30 minutes", "Đổi bố cục mỗi 30 phút").to_string();
             row(ui, &lbl, &help, |ui| {
                 if toggle(ui, &mut on).changed() {
-                    self.set("pro_layout", if on { "all" } else { "focus" });
+                    self.set("pro_layout", if on { "all" } else { "axis" });
                 }
             });
         });
         ui.add_space(12.0);
+        ui.collapsing(self.t("Legacy landscape layouts", "Các bố cục ngang trước đây"), |ui| {
+            let legacy: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && !matches!(l.key,"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
+            if let Some(k) = self.grid(ui,&legacy,&current,3) {self.set("pro_layout",&k);}
+        });
         section_title(ui, self.t("Portrait", "Màn hình dựng đứng"), self.t("For a display mounted vertically. Choose the turn direction on the Display page.", "Dành cho màn hình gắn dọc. Chọn chiều xoay ở trang Hiển thị."));
         let port: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| l.portrait).collect();
         if let Some(k) = self.grid(ui, &port, &current, 5) {
@@ -919,7 +937,8 @@ impl App {
                     let ty = rect.bottom() - 46.0;
                     p.text(Pos2::new(rect.left() + 14.0, ty), egui::Align2::LEFT_TOP, l.name, font(14.5, Weight::Semibold), TEXT);
                     let d = if self.lang == Lang::En { l.en } else { l.vi };
-                    p.text(Pos2::new(rect.left() + 14.0, ty + 20.0), egui::Align2::LEFT_TOP, d, font(12.5, Weight::Regular), MUTED);
+                    let galley = p.layout(d.to_string(), font(12.0, Weight::Regular), MUTED, cw - 48.0);
+                    p.galley(Pos2::new(rect.left()+14.0,ty+20.0),galley,MUTED);
                     if on {
                         let c = Pos2::new(rect.right() - 22.0, ty + 16.0);
                         p.circle_filled(c, 10.0, ACCENT);
@@ -937,12 +956,12 @@ impl App {
     }
 
     fn page_colors(&mut self, ui: &mut egui::Ui) {
-        let theme = self.get_or("pro_theme", "nzxt").to_ascii_lowercase();
-        section_title(ui, self.t("Color theme", "Bộ màu"), self.t("Accent colors used for CPU, GPU, memory and storage.", "Màu nhấn cho CPU, GPU, bộ nhớ và ổ cứng."));
+        let theme = self.get_or("pro_theme", "mineral").to_ascii_lowercase();
+        section_title(ui, self.t("Color theme", "Bộ màu"), self.t("Quiet surfaces. One accent. Color is reserved for what matters.", "Nền dịu, một màu nhấn, màu cảnh báo có ý nghĩa."));
         let w = ui.available_width();
         let cols = 4usize;
         let cw = ((w - GAP * (cols as f32 - 1.0)) / cols as f32).floor();
-        let mut all: Vec<(String, String, [(u8, u8, u8); 3])> = THEMES.iter().map(|t| (t.key.to_string(), t.name.to_string(), t.colors)).collect();
+        let mut all: Vec<(String, String, [(u8, u8, u8); 3])> = THEMES.iter().take(5).map(|t| (t.key.to_string(), t.name.to_string(), t.colors)).collect();
         let c = self.custom;
         all.push(("custom".into(), self.t("Custom color", "Màu tùy chọn").into(), [(c[0], c[1], c[2]), lighten(c, 0.35), lighten(c, 0.6)]));
         all.push(("all".into(), self.t("Rotate all", "Xoay vòng tất cả").into(), [(124, 92, 255), (251, 146, 60), (56, 189, 248)]));
@@ -972,6 +991,15 @@ impl App {
             });
             ui.add_space(GAP - 10.0);
         }
+        ui.collapsing(self.t("Legacy palettes", "Bộ màu trước đây"), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for t in THEMES.iter().skip(5) {
+                    if ui.selectable_label(t.key == theme, t.name).clicked() {
+                        self.set("pro_theme", t.key);
+                    }
+                }
+            });
+        });
         if is_custom {
             card(ui, |ui| {
                 let lbl = self.t("Pick your color", "Chọn màu của bạn").to_string();
@@ -1451,10 +1479,10 @@ fn main() -> eframe::Result {
         let i = i.to_rgba8();
         egui::IconData { width: i.width(), height: i.height(), rgba: i.into_raw() }
     });
-    let mut viewport = egui::ViewportBuilder::default().with_inner_size([1180.0, 860.0]).with_min_inner_size([980.0, 640.0]).with_title("HuyBruh Dash");
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([1180.0, 860.0]).with_min_inner_size([980.0, 640.0]).with_title("Aperture");
     if let Some(i) = icon {
         viewport = viewport.with_icon(i);
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("HuyBruh Dash", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native("Aperture", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
 }

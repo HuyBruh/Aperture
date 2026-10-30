@@ -1,4 +1,4 @@
-//! Editing a `trofeo.conf` text without disturbing it: the settings editor (`trofeo_config`)
+//! Editing a `trofeo.conf` text without disturbing it: the settings editor (`aperture-config`)
 //! changes only the lines of the keys the user touches. Comments, blank lines, the order,
 //! the line endings and every key the editor does not know stay exactly as they were.
 //!

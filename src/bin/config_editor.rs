@@ -1,13 +1,13 @@
-//! `trofeo_config`: a small window to create and edit `trofeo.conf`.
+//! `aperture-config`: a small window to create and edit `trofeo.conf`.
 //!
 //! It is a separate program on purpose: it only reads and writes the configuration file
-//! (the running `trofeo_lcd` picks the changes up by itself, it re-reads the file every
+//! (the running `aperture-display` picks the changes up by itself, it re-reads the file every
 //! second), so it never needs to stay open or to load anything into the memory of the main
-//! program. The preview is drawn by `trofeo_lcd.exe` itself (`--preview-png`), so it always
+//! program. The preview is drawn by `aperture-display.exe` itself (`--preview-png`), so it always
 //! matches what the display shows.
 //!
 //! Layout of this file: the editing model (`Ed`: the text of the file, edited line by line
-//! through `trofeo_lcd::conf_edit`), the widgets of every kind of setting, the preview runner,
+//! through `aperture::conf_edit`), the widgets of every kind of setting, the preview runner,
 //! and the window (`App`).
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -16,11 +16,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use trofeo_lcd::conf_edit::ConfDoc;
-use trofeo_lcd::schema::{self, Field, Kind};
+use aperture::conf_edit::ConfDoc;
+use aperture::schema::{self, Field, Kind};
 
 /// The commented example shipped with the program: the starting point of a new file.
-const EXAMPLE: &str = include_str!("../../trofeo.conf.example");
+const EXAMPLE: &str = include_str!("../../docs/reference/advanced.conf");
 
 // ------------------------------------------------------------------------ language
 
@@ -218,9 +218,9 @@ struct Rendered {
     image: egui::ColorImage,
 }
 
-/// Looks for `trofeo_lcd(.exe)` next to this program (or on the PATH).
+/// Looks for `aperture-display(.exe)` next to this program (or on the PATH).
 fn find_main_exe() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "trofeo_lcd.exe" } else { "trofeo_lcd" };
+    let name = if cfg!(windows) { "aperture-display.exe" } else { "aperture-display" };
     if let Ok(p) = std::env::var("TROFEO_LCD_EXE") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -240,8 +240,8 @@ fn find_main_exe() -> Option<PathBuf> {
 fn render_preview(exe: &Path, text: &str, workdir: &Path, state: PreviewState, layout: usize, secs: f64) -> Result<Rendered, String> {
     let tmp = std::env::temp_dir();
     let id = std::process::id();
-    let conf = tmp.join(format!("trofeo_config_{id}.conf"));
-    let png = tmp.join(format!("trofeo_config_{id}.png"));
+    let conf = tmp.join(format!("aperture-config_{id}.conf"));
+    let png = tmp.join(format!("aperture-config_{id}.png"));
     std::fs::write(&conf, text).map_err(|e| format!("cannot write the temporary file: {e}"))?;
     let _ = std::fs::remove_file(&png);
     let mut cmd = std::process::Command::new(exe);
@@ -1035,7 +1035,7 @@ impl App {
         if self.preview.exe.is_none() {
             ui.colored_label(
                 Color32::from_rgb(255, 170, 90),
-                tr(l, "The preview needs trofeo_lcd.exe in the same folder as this program.", "L'anteprima richiede trofeo_lcd.exe nella stessa cartella di questo programma."),
+                tr(l, "The preview needs aperture-display.exe in the same folder as this program.", "L'anteprima richiede aperture-display.exe nella stessa cartella di questo programma."),
             );
         }
         if let Some(e) = &self.preview.error {
@@ -1065,7 +1065,7 @@ impl App {
             self.raw_text = None;
         }
         ui.add_space(8.0);
-        ui.label(RichText::new(tr(l, "* needs a restart of trofeo_lcd", "* serve riavviare trofeo_lcd")).weak().small());
+        ui.label(RichText::new(tr(l, "* needs a restart of aperture-display", "* serve riavviare aperture-display")).weak().small());
         ui.label(RichText::new(tr(l, "(n) = settings you changed", "(n) = impostazioni che hai cambiato")).weak().small());
     }
 
@@ -1311,7 +1311,7 @@ mod tests {
         ed.set("tiles", &tiles_to_string(&parse_tiles(DEFAULT_TILES).unwrap()));
         ed.unset("language");
         let text = ed.doc.to_text();
-        let cfg = trofeo_lcd::config::ConfigFile::parse(&text).unwrap();
+        let cfg = aperture::config::ConfigFile::parse(&text).unwrap();
         assert_eq!(cfg.get("background_effect"), Some("aquarium"));
         assert_eq!(cfg.get("effect_level"), Some("70"));
         assert_eq!(cfg.get("layout"), Some("tiles:20, weather:5"));

@@ -37,7 +37,7 @@ impl DiskInfo {
 pub struct Extra {
     pub disk: Option<DiskInfo>,
     /// Temperatures and fans from HWiNFO or LibreHardwareMonitor, when one of them runs.
-    pub ext: Option<(trofeo_lcd::sensors_ext::Source, trofeo_lcd::sensors_ext::Snapshot)>,
+    pub ext: Option<(aperture::sensors_ext::Source, aperture::sensors_ext::Snapshot)>,
 }
 
 pub type SharedExtra = Arc<Mutex<Extra>>;
@@ -52,7 +52,7 @@ pub fn spawn_watcher() -> SharedExtra {
         let mut wait_ext = 0u32;
         loop {
             let ext = if wait_ext == 0 {
-                let e = trofeo_lcd::sensors_ext::read_any();
+                let e = aperture::sensors_ext::read_any();
                 if e.is_none() {
                     wait_ext = 10;
                 }
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn cpu_fan_is_picked() {
-        let f = |v: &[(&str, f64)]| trofeo_lcd::sensors_ext::pick_cpu_fan(&v.iter().map(|(a, b)| (a.to_string(), *b)).collect::<Vec<_>>());
+        let f = |v: &[(&str, f64)]| aperture::sensors_ext::pick_cpu_fan(&v.iter().map(|(a, b)| (a.to_string(), *b)).collect::<Vec<_>>());
         assert_eq!(f(&[("System 1", 900.0), ("CPU", 1210.4), ("CPU OPT", 0.0)]), Some(1210));
         assert_eq!(f(&[("CPU OPT", 800.0)]), Some(800));
         assert_eq!(f(&[("Chassis", 800.0)]), None);

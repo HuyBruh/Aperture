@@ -801,7 +801,7 @@ impl Painter<'_> {
                 let top = base.round() as i32 - 7 * s;
                 let mut pen = x.round() as i32;
                 for c in text.chars() {
-                    let g = trofeo_lcd::font::glyph(c);
+                    let g = aperture::font::glyph(c);
                     for (ry, bits) in g.iter().enumerate() {
                         for col in 0..5 {
                             if (bits >> (4 - col)) & 1 == 1 {
@@ -1228,7 +1228,7 @@ fn draw_weather(p: &mut Painter, look: &Look2, v: &TileView, (x, y, w, h): (f32,
     p.text(x + pad, base, &v.value, cap, W::Regular, look.text, 255);
     if let (true, Some((icon, (r, g, b)))) = (show_icon, v.icon) {
         let n = weather_icon::size(icon_scale);
-        let mut tmp = Framebuffer::new(trofeo_lcd::Resolution::new(n, n));
+        let mut tmp = Framebuffer::new(aperture::Resolution::new(n, n));
         tmp.clear(1, 0, 2);
         weather_icon::draw(&mut tmp, 0, 0, icon_scale, icon, r, g, b);
         let (ix, iy) = ((x + w - pad - icon_px) as i32, (y + (h - icon_px) / 2.0) as i32);
@@ -1307,7 +1307,7 @@ impl TilesScreen {
             BgMode::Gradient => {
                 let key = format!("{:?}|{}x{}", s.bg_colors, fb.width(), fb.height());
                 if self.gradient.as_ref().map(|g| g.0 != key).unwrap_or(true) {
-                    let mut g = Framebuffer::new(trofeo_lcd::Resolution::new(fb.width(), fb.height()));
+                    let mut g = Framebuffer::new(aperture::Resolution::new(fb.width(), fb.height()));
                     let (w, h) = (fb.width() as usize, fb.height() as usize);
                     let stops = if s.bg_colors.len() == 1 { vec![s.bg_colors[0], dim_color(s.bg_colors[0], 35)] } else { s.bg_colors.clone() };
                     let bytes = g.as_bytes_mut();
@@ -1337,7 +1337,7 @@ impl TilesScreen {
                 let path = s.bg_image.clone().unwrap_or_default();
                 let key = format!("{}|{}x{}|{}", path.display(), fb.width(), fb.height(), s.bg_dim);
                 if self.image.as_ref().map(|i| i.0 != key).unwrap_or(true) {
-                    let res = trofeo_lcd::Resolution::new(fb.width(), fb.height());
+                    let res = aperture::Resolution::new(fb.width(), fb.height());
                     let loaded = match Background::load(&path, res, s.bg_dim as u8, env.fps, env.ffmpeg, &BgLayout::default()) {
                         Ok(b) => Some(b),
                         Err(e) => {
@@ -1481,7 +1481,7 @@ mod tests {
         let mut l = Layer::new(2, 1);
         l.over(0, 0, (200, 100, 0), 255);
         l.over(1, 0, (255, 255, 255), 128);
-        let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(2, 1));
+        let mut fb = Framebuffer::new(aperture::Resolution::new(2, 1));
         fb.clear(0, 0, 100);
         l.composite_onto(&mut fb, 0, 0);
         assert_eq!(&fb.as_bytes()[0..3], &[200, 100, 0]);
@@ -1559,7 +1559,7 @@ mod tests {
                         let mut s = Settings { font, theme, bg, ..Settings::default() };
                         s.rows = parse_tiles(all).unwrap();
                         let mut screen = TilesScreen::new();
-                        let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(w, h));
+                        let mut fb = Framebuffer::new(aperture::Resolution::new(w, h));
                         fb.clear(10, 10, 30);
                         let before = fb.as_bytes().to_vec();
                         screen.draw(&mut fb, (0, 0, w, h), &data(), ColorMode::Default, &s, &env(&eff));
@@ -1578,7 +1578,7 @@ mod tests {
         let eff = effect::Settings::default();
         let s = Settings::default();
         let mut screen = TilesScreen::new();
-        let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(1920, 400));
+        let mut fb = Framebuffer::new(aperture::Resolution::new(1920, 400));
         let mut d = data();
         screen.draw(&mut fb, (0, 0, 1920, 400), &d, ColorMode::Default, &s, &env(&eff));
         d.cpu_pct = 60.0;
@@ -1608,7 +1608,7 @@ mod tests {
         for bg in [BgMode::Global, BgMode::Effect] {
             let s = Settings { bg, ..Settings::default() };
             let mut screen = TilesScreen::new();
-            let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(1920, 400));
+            let mut fb = Framebuffer::new(aperture::Resolution::new(1920, 400));
             let mut d = data();
             screen.draw(&mut fb, (0, 0, 1920, 400), &d, ColorMode::Default, &s, &env(&eff)); // fills the glyph cache
             let t = std::time::Instant::now();
@@ -1647,7 +1647,7 @@ mod tests {
         ];
         for (name, s, (w, h)) in cases {
             let mut screen = TilesScreen::new();
-            let mut fb = Framebuffer::new(trofeo_lcd::Resolution::new(w, h));
+            let mut fb = Framebuffer::new(aperture::Resolution::new(w, h));
             fb.clear(0x08, 0x08, 0x10);
             screen.draw(&mut fb, (0, 0, w, h), &data(), ColorMode::Default, &s, &env(&eff));
             save(name, &fb);

@@ -17,7 +17,7 @@
 //! The picture itself is the expensive part of the program (JPEG encode + USB), so
 //! the frame rate of the effect is a setting of its own (`effect_fps`).
 
-use trofeo_lcd::Framebuffer;
+use aperture::Framebuffer;
 
 pub type Rgb = (u8, u8, u8);
 
@@ -778,7 +778,7 @@ impl Effect {
                     continue;
                 }
                 let seed = mix(col as u64 * 7919 + row as u64, if k == 0 { flicker } else { d.epoch });
-                let glyph = trofeo_lcd::font::glyph(chars[(seed % chars.len() as u64) as usize]);
+                let glyph = aperture::font::glyph(chars[(seed % chars.len() as u64) as usize]);
                 // the head is the brightest, a little whiter; the tail fades into the colour
                 let rgb = if k == 0 { self.head(c, white) } else { self.shade(c, i) };
                 let (x0, y0) = (col * cw + g, row * ch + g);
@@ -1030,7 +1030,7 @@ fn palette_sig(p: &Palette) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trofeo_lcd::Resolution;
+    use aperture::Resolution;
 
     fn fb(w: u32, h: u32) -> Framebuffer {
         Framebuffer::new(Resolution { width: w, height: h })
@@ -1295,7 +1295,7 @@ mod tests {
     #[test]
     fn rain_glyphs_all_exist_in_the_pixel_font() {
         for c in RAIN_CHARS.chars() {
-            assert!(trofeo_lcd::font::glyph(c).iter().any(|&r| r != 0), "{c:?} has no pixels");
+            assert!(aperture::font::glyph(c).iter().any(|&r| r != 0), "{c:?} has no pixels");
         }
     }
 

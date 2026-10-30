@@ -1,0 +1,18 @@
+[Unit]
+Description=Aperture system display
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+# Replace this with the absolute path to your Aperture build.
+ExecStart=%h/Aperture/target/release/aperture-display
+Restart=on-failure
+RestartSec=3
+
+# If X11 game detection fails, import DISPLAY and XAUTHORITY into the
+# user service environment, or uncomment and customize these examples.
+# Environment=DISPLAY=:0
+# Environment=XAUTHORITY=%h/.Xauthority
+
+[Install]
+WantedBy=graphical-session.target

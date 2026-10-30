@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-  Removes the trofeo_lcd autostart entry created by install-autostart.ps1
+  Removes the aperture-display autostart entry created by install-autostart.ps1
   (either the Scheduled Task or the Startup-folder shortcut).
 
 .PARAMETER Method
   "Task" (default), "Shortcut", or "Both" to remove whichever exists.
 
 .PARAMETER TaskName
-  Name used at install time. Default: "TrofeoLCD".
+  Name used at install time. Default: "ApertureDisplay".
 
 .EXAMPLE
   .\uninstall-autostart.ps1
@@ -19,7 +19,7 @@
 param(
     [ValidateSet("Task", "Shortcut", "Both")]
     [string]$Method = "Both",
-    [string]$TaskName = "TrofeoLCD"
+    [string]$TaskName = "ApertureDisplay"
 )
 
 $ErrorActionPreference = "Stop"

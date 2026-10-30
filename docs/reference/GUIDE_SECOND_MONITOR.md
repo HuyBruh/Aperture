@@ -14,7 +14,7 @@ DisplayPort). Therefore:
 
 1. We create a **Virtual Monitor** in Windows at the native resolution
    **1920×462**.
-2. The **`trofeo_screen`** program captures that virtual monitor in real
+2. The **`aperture-screen`** program captures that virtual monitor in real
    time via the GPU (DXGI Desktop Duplication API) and sends it to the Trofeo
    screen over USB.
 
@@ -44,15 +44,15 @@ DisplayPort). Therefore:
 
 ---
 
-## 3. Step 2: Running `trofeo_screen`
+## 3. Step 2: Running `aperture-screen`
 
 ### Check detected monitors
 
 ```bash
-cargo run --bin trofeo_screen -- --list-displays
+cargo run --bin aperture-screen -- --list-displays
 ```
 
-Or from the release binary (`.\target\release\trofeo_screen.exe --list-displays`):
+Or from the release binary (`.\target\release\aperture-screen.exe --list-displays`):
 
 ```text
 Detected Monitors:
@@ -69,13 +69,13 @@ INDEX  ADAPTER                  DEVICE           RESOLUTION  STATUS
 ### Start streaming to the Trofeo screen
 
 ```bash
-cargo run --release --bin trofeo_screen
+cargo run --release --bin aperture-screen
 ```
 
 Or just run the compiled binary:
 
 ```powershell
-.\target\release\trofeo_screen.exe
+.\target\release\aperture-screen.exe
 ```
 
 The program will automatically:
@@ -103,15 +103,15 @@ The program will automatically:
 
 * **If the screen is mounted upside down**:
   ```powershell
-  .\target\release\trofeo_screen.exe --rotate
+  .\target\release\aperture-screen.exe --rotate
   ```
 * **Sharper images (e.g. for small text)**:
   ```powershell
-  .\target\release\trofeo_screen.exe --quality 85 --fps 25
+  .\target\release\aperture-screen.exe --quality 85 --fps 25
   ```
 * **Auto-start at Windows login with no black window**:
   ```powershell
-  .\target\release\trofeo_screen.exe --hide-console
+  .\target\release\aperture-screen.exe --hide-console
   ```
 
 ---
@@ -122,12 +122,12 @@ The program will automatically:
 2. Right-click inside that folder → **New** → **Shortcut**.
 3. Point the target at the executable location:
    ```text
-   "C:\Users\USER\Documents\Default Project\trofeo-lcd\target\release\trofeo_screen.exe" --hide-console
+   "C:\Users\USER\Documents\Default Project\trofeo-lcd\target\release\aperture-screen.exe" --hide-console
    ```
 4. Click **Next** and name it `Trofeo Screen`. The second monitor will now
    activate automatically every time you log into Windows!
 
 ---
 
-> ⚠️ **Important:** `trofeo_screen` and `trofeo_lcd` use the same LCD — run
+> ⚠️ **Important:** `aperture-screen` and `aperture-display` use the same LCD — run
 > **one of them**, never both at the same time.

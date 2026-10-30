@@ -2815,8 +2815,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "trofeo_lcd"
-version = "1.1.0"
+name = "aperture"
+version = "4.0.0"
 dependencies = [
  "anyhow",
  "chrono",
