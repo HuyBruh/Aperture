@@ -23,7 +23,42 @@ pub struct Snapshot {
     pub fans: Vec<Reading>,
 }
 
+impl Reading {
+    pub fn selector(&self) -> String {
+        format!("{} / {}", self.device, self.label)
+    }
+
+    fn rpm(&self) -> Option<u32> {
+        (self.value.is_finite() && (0.0..=50_000.0).contains(&self.value))
+            .then(|| self.value.round() as u32)
+    }
+}
+
 impl Snapshot {
+    pub fn selected_fan(&self, wanted: &str) -> Option<u32> {
+        self.fans.iter()
+            .find(|fan| fan.selector().eq_ignore_ascii_case(wanted.trim())
+                || fan.label.eq_ignore_ascii_case(wanted.trim()))
+            .and_then(Reading::rpm)
+    }
+
+    pub fn gpu_fan(&self, wanted: &str) -> Option<u32> {
+        if !wanted.trim().is_empty() {
+            return self.selected_fan(wanted);
+        }
+        let mut candidates = self.fans.iter().filter(|fan| {
+            let device = fan.device.to_ascii_lowercase();
+            let label = fan.label.to_ascii_lowercase();
+            ["nvidia", "radeon", "geforce", "gpu"].iter().any(|word| device.contains(word))
+                || label.contains("gpu")
+        });
+        let first = candidates.next()?;
+        if candidates.any(|other| other.device != first.device) {
+            return None;
+        }
+        first.rpm()
+    }
+
     /// CPU package temperature.
     pub fn cpu_temp(&self) -> Option<f32> {
         let l = |r: &&Reading| r.label.to_ascii_lowercase();
@@ -45,11 +80,17 @@ impl Snapshot {
     /// CPU fan: the label chosen in the settings (`wanted`), else the usual CPU fan names.
     pub fn cpu_fan(&self, wanted: Option<&str>) -> Option<u32> {
         if let Some(w) = wanted.map(|w| w.trim()).filter(|w| !w.is_empty()) {
-            let w = w.to_ascii_lowercase();
-            return self.fans.iter().find(|r| r.label.to_ascii_lowercase() == w).map(|r| r.value.max(0.0).round() as u32);
+            return self.selected_fan(w);
         }
         let fans: Vec<(String, f64)> = self.fans.iter().map(|r| (r.label.clone(), r.value)).collect();
-        pick_cpu_fan(&fans)
+        pick_cpu_fan(&fans).or_else(|| {
+            self.fans.iter()
+                .find(|fan| {
+                    let label = fan.label.to_ascii_lowercase();
+                    label.contains("pump") && !label.contains("gpu")
+                })
+                .and_then(Reading::rpm)
+        })
     }
 }
 
@@ -59,7 +100,10 @@ pub fn pick_cpu_fan(fans: &[(String, f64)]) -> Option<u32> {
     let l = |s: &str| s.to_ascii_lowercase();
     let exact = fans.iter().find(|(n, _)| matches!(l(n).trim(), "cpu" | "cpu fan" | "cpu_fan" | "cpu fan1" | "cpu fan #1"));
     let any = || fans.iter().find(|(n, _)| { let n = l(n); n.contains("cpu") && !n.contains("opt") && !n.contains("pump") });
-    let opt = || fans.iter().find(|(n, _)| l(n).contains("cpu"));
+    let opt = || fans.iter().find(|(n, _)| {
+        let name = l(n);
+        name.contains("cpu") && name.contains("opt") && !name.contains("pump")
+    });
     exact.or_else(any).or_else(opt).map(|(_, v)| v.max(0.0).round() as u32)
 }
 
@@ -361,6 +405,21 @@ pub mod json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pump_fallback_and_duplicate_gpu_fans() {
+        let mut snapshot = Snapshot::default();
+        for (device, label, value) in [
+            ("Board", "AIO Pump", 2300.0),
+            ("AMD Radeon iGPU", "Fan #1", 600.0),
+            ("NVIDIA RTX 4090", "Fan #1", 1250.0),
+        ] {
+            snapshot.fans.push(Reading { device: device.into(), label: label.into(), value });
+        }
+        assert_eq!(snapshot.cpu_fan(None), Some(2300));
+        assert_eq!(snapshot.gpu_fan(""), None);
+        assert_eq!(snapshot.gpu_fan("NVIDIA RTX 4090 / Fan #1"), Some(1250));
+    }
 
     #[test]
     fn lhm_tree() {

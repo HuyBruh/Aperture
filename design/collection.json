@@ -1,27 +1,450 @@
 {
-  "canvas": [1920, 462],
+  "canvas": [
+    1920,
+    462
+  ],
   "palettes": {
-    "mineral": {"bg":"101213", "panel":"191C1E", "text":"F2F3EF", "muted":"A8B0B2", "dim":"899496", "accent":"BED9C5"},
-    "frost": {"bg":"101419", "panel":"192027", "text":"EEF4F8", "muted":"A8B9C8", "dim":"899EAF", "accent":"A9CCE8"},
-    "blush": {"bg":"171316", "panel":"231D21", "text":"F8F0F3", "muted":"C0ABB5", "dim":"A68D9A", "accent":"E4AAC5"},
-    "sand": {"bg":"171512", "panel":"24201A", "text":"F6F1E8", "muted":"C0B5A4", "dim":"A89B88", "accent":"DFBD87"},
-    "iris": {"bg":"14131A", "panel":"201E29", "text":"F1EFF9", "muted":"B4ADC8", "dim":"9B91B3", "accent":"C4B3E8"}
+    "mineral": {
+      "bg": "101213",
+      "panel": "191C1E",
+      "text": "F2F3EF",
+      "muted": "A8B0B2",
+      "dim": "899496",
+      "accent": "BED9C5"
+    },
+    "frost": {
+      "bg": "101419",
+      "panel": "192027",
+      "text": "EEF4F8",
+      "muted": "A8B9C8",
+      "dim": "899EAF",
+      "accent": "A9CCE8"
+    },
+    "blush": {
+      "bg": "171316",
+      "panel": "231D21",
+      "text": "F8F0F3",
+      "muted": "C0ABB5",
+      "dim": "A68D9A",
+      "accent": "E4AAC5"
+    },
+    "sand": {
+      "bg": "171512",
+      "panel": "24201A",
+      "text": "F6F1E8",
+      "muted": "C0B5A4",
+      "dim": "A89B88",
+      "accent": "DFBD87"
+    },
+    "iris": {
+      "bg": "14131A",
+      "panel": "201E29",
+      "text": "F1EFF9",
+      "muted": "B4ADC8",
+      "dim": "9B91B3",
+      "accent": "C4B3E8"
+    },
+    "lagoon": {
+      "bg": "0C181B",
+      "panel": "14272B",
+      "text": "E9FBF7",
+      "muted": "AED0CA",
+      "dim": "91B8B1",
+      "accent": "82E6CB"
+    }
   },
   "layouts": [
-    {"key":"axis", "name":"Axis", "en":"A quiet header. Three clear instruments.", "vi":"Thanh ngữ cảnh, ba bảng thông số rõ ràng.", "widgets":[
-      ["time",24,24,380,96,"compact"], ["weather",420,24,660,96,"compact"], ["music",1096,24,800,96,"compact"],
-      ["cpu",24,136,613,302,"grid"], ["gpu",653,136,611,302,"grid"], ["mem",1280,136,616,302,"grid"]]},
-    {"key":"ledger", "name":"Ledger", "en":"Three precise rows. Every reading in place.", "vi":"Ba hàng thẳng, mỗi thông số một vị trí.", "widgets":[
-      ["time",24,24,386,142,"large"], ["weather",24,182,386,142,"compact"], ["music",24,340,386,98,"compact"],
-      ["cpu",426,24,1470,127,"row"], ["gpu",426,167,1470,127,"row"], ["mem",426,310,1470,128,"row"]]},
-    {"key":"duet", "name":"Duet", "en":"CPU and GPU in dialogue. A dedicated memory rail.", "vi":"CPU và GPU song song, bộ nhớ thành cột riêng.", "widgets":[
-      ["cpu",24,24,1160,199,"wide"], ["gpu",24,239,1160,199,"wide"], ["mem",1200,24,344,414,"column"],
-      ["time",1560,24,336,132,"large"], ["weather",1560,172,336,158,"compact"], ["music",1560,346,336,92,"compact"]]},
-    {"key":"orbit", "name":"Orbit", "en":"Measured arcs, a central clock, balanced side rails.", "vi":"Vòng cung tiết chế, đồng hồ giữa, hai cánh cân đối.", "widgets":[
-      ["cpu",24,24,376,414,"ring"], ["gpu",416,24,374,414,"ring"], ["mem",1130,24,374,414,"ring"],
-      ["time",806,24,308,170,"large"], ["music",806,210,308,228,"cover"], ["weather",1520,24,376,414,"large"]]},
-    {"key":"atelier", "name":"Atelier", "en":"An album-led composition with a full hardware desk.", "vi":"Ảnh bìa lớn cùng bàn thông số đầy đủ.", "widgets":[
-      ["music",24,24,414,414,"cover"], ["time",454,24,386,132,"large"], ["weather",856,24,1040,132,"compact"],
-      ["cpu",454,172,470,266,"grid"], ["gpu",940,172,470,266,"grid"], ["mem",1426,172,470,266,"grid"]]}
+    {
+      "key": "axis",
+      "name": "Axis",
+      "en": "A quiet header. Three clear instruments.",
+      "vi": "Thanh ngữ cảnh, ba bảng thông số rõ ràng.",
+      "widgets": [
+        [
+          "time",
+          12,
+          12,
+          385,
+          102,
+          "compact"
+        ],
+        [
+          "weather",
+          413,
+          12,
+          668,
+          102,
+          "compact"
+        ],
+        [
+          "music",
+          1098,
+          12,
+          810,
+          102,
+          "compact"
+        ],
+        [
+          "cpu",
+          12,
+          130,
+          621,
+          320,
+          "grid"
+        ],
+        [
+          "gpu",
+          649,
+          130,
+          619,
+          320,
+          "grid"
+        ],
+        [
+          "mem",
+          1284,
+          130,
+          624,
+          320,
+          "grid"
+        ]
+      ]
+    },
+    {
+      "key": "ledger",
+      "name": "Ledger",
+      "en": "Three precise rows. Every reading in place.",
+      "vi": "Ba hàng thẳng, mỗi thông số một vị trí.",
+      "widgets": [
+        [
+          "time",
+          12,
+          12,
+          391,
+          150,
+          "large"
+        ],
+        [
+          "weather",
+          12,
+          179,
+          391,
+          150,
+          "compact"
+        ],
+        [
+          "music",
+          12,
+          346,
+          391,
+          104,
+          "compact"
+        ],
+        [
+          "cpu",
+          419,
+          12,
+          1489,
+          134,
+          "row"
+        ],
+        [
+          "gpu",
+          419,
+          163,
+          1489,
+          134,
+          "row"
+        ],
+        [
+          "mem",
+          419,
+          315,
+          1489,
+          135,
+          "row"
+        ]
+      ]
+    },
+    {
+      "key": "duet",
+      "name": "Duet",
+      "en": "CPU and GPU in dialogue. A dedicated memory rail.",
+      "vi": "CPU và GPU song song, bộ nhớ thành cột riêng.",
+      "widgets": [
+        [
+          "cpu",
+          12,
+          12,
+          1175,
+          211,
+          "wide"
+        ],
+        [
+          "gpu",
+          12,
+          239,
+          1175,
+          211,
+          "wide"
+        ],
+        [
+          "mem",
+          1203,
+          12,
+          348,
+          438,
+          "column"
+        ],
+        [
+          "time",
+          1568,
+          12,
+          340,
+          140,
+          "large"
+        ],
+        [
+          "weather",
+          1568,
+          169,
+          340,
+          167,
+          "compact"
+        ],
+        [
+          "music",
+          1568,
+          353,
+          340,
+          97,
+          "compact"
+        ]
+      ]
+    },
+    {
+      "key": "orbit",
+      "name": "Orbit",
+      "en": "Measured arcs, a central clock, balanced side rails.",
+      "vi": "Vòng cung tiết chế, đồng hồ giữa, hai cánh cân đối.",
+      "widgets": [
+        [
+          "cpu",
+          12,
+          12,
+          381,
+          438,
+          "ring"
+        ],
+        [
+          "gpu",
+          409,
+          12,
+          379,
+          438,
+          "ring"
+        ],
+        [
+          "mem",
+          1132,
+          12,
+          379,
+          438,
+          "ring"
+        ],
+        [
+          "time",
+          804,
+          12,
+          312,
+          180,
+          "large"
+        ],
+        [
+          "music",
+          804,
+          209,
+          312,
+          241,
+          "cover"
+        ],
+        [
+          "weather",
+          1527,
+          12,
+          381,
+          438,
+          "large"
+        ]
+      ]
+    },
+    {
+      "key": "atelier",
+      "name": "Atelier",
+      "en": "An album-led composition with a full hardware desk.",
+      "vi": "Ảnh bìa lớn cùng bàn thông số đầy đủ.",
+      "widgets": [
+        [
+          "music",
+          12,
+          12,
+          419,
+          438,
+          "cover"
+        ],
+        [
+          "time",
+          448,
+          12,
+          391,
+          140,
+          "large"
+        ],
+        [
+          "weather",
+          855,
+          12,
+          1053,
+          140,
+          "compact"
+        ],
+        [
+          "cpu",
+          448,
+          169,
+          476,
+          281,
+          "grid"
+        ],
+        [
+          "gpu",
+          940,
+          169,
+          476,
+          281,
+          "grid"
+        ],
+        [
+          "mem",
+          1432,
+          169,
+          476,
+          281,
+          "grid"
+        ]
+      ]
+    },
+    {
+      "key": "panorama",
+      "name": "Panorama",
+      "en": "Full-width instruments with a compact context footer.",
+      "vi": "Ba bảng lớn và thanh ngữ cảnh gọn.",
+      "widgets": [
+        [
+          "cpu",
+          12,
+          12,
+          624,
+          326,
+          "grid"
+        ],
+        [
+          "gpu",
+          648,
+          12,
+          624,
+          326,
+          "grid"
+        ],
+        [
+          "mem",
+          1284,
+          12,
+          624,
+          326,
+          "grid"
+        ],
+        [
+          "time",
+          12,
+          350,
+          400,
+          100,
+          "compact"
+        ],
+        [
+          "weather",
+          424,
+          350,
+          640,
+          100,
+          "compact"
+        ],
+        [
+          "music",
+          1076,
+          350,
+          832,
+          100,
+          "compact"
+        ]
+      ]
+    },
+    {
+      "key": "cinema",
+      "name": "Cinema",
+      "en": "Large album artwork and a dense hardware console.",
+      "vi": "Ảnh bìa lớn, bảng thông số gọn.",
+      "widgets": [
+        [
+          "music",
+          12,
+          12,
+          438,
+          438,
+          "cover"
+        ],
+        [
+          "cpu",
+          462,
+          12,
+          1446,
+          108,
+          "row"
+        ],
+        [
+          "gpu",
+          462,
+          132,
+          1446,
+          108,
+          "row"
+        ],
+        [
+          "mem",
+          462,
+          252,
+          1446,
+          108,
+          "row"
+        ],
+        [
+          "time",
+          462,
+          372,
+          400,
+          78,
+          "compact"
+        ],
+        [
+          "weather",
+          874,
+          372,
+          1034,
+          78,
+          "compact"
+        ]
+      ]
+    }
   ]
 }

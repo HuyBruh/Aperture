@@ -13,7 +13,7 @@ Get-ChildItem -LiteralPath (Join-Path $root 'windows') -Force | Copy-Item -Desti
 foreach ($exe in @('aperture-display.exe','aperture.exe')) { Copy-Item -LiteralPath (Join-Path $build $exe) -Destination $package }
 foreach ($name in @('LICENSE','NOTICE.md')) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $package }
 New-Item -ItemType Directory -Path (Join-Path $package 'docs/reference'),(Join-Path $package 'assets/brand') -Force | Out-Null
-foreach ($name in @('CONFIGURATION.md','MIGRATION.md','VALIDATION.md')) { Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $package 'docs') }
+foreach ($name in @('CONFIGURATION.md','MIGRATION.md','VALIDATION.md','CANVAS.md','COMMUNITY-FEEDBACK.md')) { Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $package 'docs') }
 Copy-Item -LiteralPath (Join-Path $root 'docs/reference/OPTIONS_GUIDE.md') -Destination (Join-Path $package 'docs/reference')
 foreach ($name in @('OFL.txt','Inter-OFL.txt')) { Copy-Item -LiteralPath (Join-Path $root "assets/$name") -Destination (Join-Path $package 'assets') }
 Copy-Item -LiteralPath (Join-Path $root 'assets/brand/aperture.ico') -Destination (Join-Path $package 'assets/brand')

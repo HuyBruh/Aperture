@@ -5,6 +5,8 @@ const APERTURE_LAYOUTS: &[LayoutInfo] = &[
     LayoutInfo { key: "duet", name: "Duet", en: "CPU and GPU in dialogue. A dedicated memory rail.", vi: "CPU và GPU song song, bộ nhớ thành cột riêng.", portrait: false },
     LayoutInfo { key: "orbit", name: "Orbit", en: "Measured arcs, a central clock, balanced side rails.", vi: "Vòng cung tiết chế, đồng hồ giữa, hai cánh cân đối.", portrait: false },
     LayoutInfo { key: "atelier", name: "Atelier", en: "An album-led composition with a full hardware desk.", vi: "Ảnh bìa lớn cùng bàn thông số đầy đủ.", portrait: false },
+    LayoutInfo { key: "panorama", name: "Panorama", en: "Full-width instruments with a compact context footer.", vi: "Ba bảng lớn và thanh ngữ cảnh gọn.", portrait: false },
+    LayoutInfo { key: "cinema", name: "Cinema", en: "Large album artwork and a dense hardware console.", vi: "Ảnh bìa lớn, bảng thông số gọn.", portrait: false },
 ];
 const APERTURE_PALETTES: &[ThemeInfo] = &[
     ThemeInfo { key: "mineral", name: "Mineral", colors: [(190, 217, 197), (168, 176, 178), (25, 28, 30)] },
@@ -12,4 +14,5 @@ const APERTURE_PALETTES: &[ThemeInfo] = &[
     ThemeInfo { key: "blush", name: "Blush", colors: [(228, 170, 197), (192, 171, 181), (35, 29, 33)] },
     ThemeInfo { key: "sand", name: "Sand", colors: [(223, 189, 135), (192, 181, 164), (36, 32, 26)] },
     ThemeInfo { key: "iris", name: "Iris", colors: [(196, 179, 232), (180, 173, 200), (32, 30, 41)] },
+    ThemeInfo { key: "lagoon", name: "Lagoon", colors: [(130, 230, 203), (174, 208, 202), (20, 39, 43)] },
 ];

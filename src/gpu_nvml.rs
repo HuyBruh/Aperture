@@ -24,7 +24,10 @@ mod imp {
     type PowerFn = unsafe extern "C" fn(*mut c_void, *mut u32) -> i32;
     type ClockFn = unsafe extern "C" fn(*mut c_void, u32, *mut u32) -> i32;
     /// (temperature °C, power W, core clock MHz)
-    pub type Reading = (Option<i32>, Option<i32>, Option<i32>);
+    pub type Reading = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+    #[repr(C)]
+    struct Memory {total:u64, free:u64, used:u64}
+    type MemoryFn = unsafe extern "C" fn(*mut c_void,*mut Memory)->i32;
     /// `nvmlTemperature_t` (newer NVML / RTX 50): { version, sensorType, temperature }.
     #[repr(C)]
     struct TempV {
@@ -37,6 +40,8 @@ mod imp {
     const TEMP_V1: u32 = 12 | (1 << 24);
 
     struct Nvml {
+        memory: Option<MemoryFn>,
+        fan: Option<TempFn>,
         clock: Option<ClockFn>,
         dev: *mut c_void,
         temp: TempFn,
@@ -101,7 +106,9 @@ mod imp {
                 if rc != 0 || dev.is_null() {
                     return Err(format!("nvmlDeviceGetHandleByIndex error {rc}"));
                 }
-                let n = Nvml { clock, dev, temp, temp_v, power };
+                let memory=sym("nvmlDeviceGetMemoryInfo").map(|f| std::mem::transmute(f));
+                let fan=sym("nvmlDeviceGetFanSpeed_v2").map(|f| std::mem::transmute(f));
+                let n = Nvml { memory, fan, clock, dev, temp, temp_v, power };
                 // Real test: if even the first reading fails, better to fall back to nvidia-smi.
                 if n.sample().0.is_none() {
                     return Err("NVML did not return a temperature".into());
@@ -129,7 +136,10 @@ mod imp {
                 let clock = self
                     .clock
                     .and_then(|f| (f(self.dev, 0, &mut c) == 0).then_some(c as i32));
-                (temp, power, clock)
+                let mut memory=Memory{total:0,free:0,used:0};
+                let memory_ok=self.memory.is_some_and(|f|f(self.dev,&mut memory)==0);
+                let mut fan=0;let fan_ok=self.fan.is_some_and(|f|f(self.dev,0,&mut fan)==0);
+                (temp, power, clock, memory_ok.then_some((memory.used/1048576).min(i32::MAX as u64) as i32), memory_ok.then_some((memory.total/1048576).min(i32::MAX as u64) as i32),fan_ok.then_some(fan as i32))
             }
         }
     }
@@ -150,7 +160,7 @@ mod imp {
 
     fn run_smi() -> Option<Reading> {
         let out = Command::new(smi_path())
-            .args(["--query-gpu=temperature.gpu,power.draw,clocks.gr", "--format=csv,noheader,nounits", "-i", "0"])
+            .args(["--query-gpu=temperature.gpu,power.draw,clocks.gr,memory.used,memory.total,fan.speed", "--format=csv,noheader,nounits", "-i", "0"])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
@@ -164,7 +174,8 @@ mod imp {
         let temp = it.next()?.trim().parse::<f32>().ok().map(|v| v.round() as i32);
         let power = it.next().and_then(|v| v.trim().parse::<f32>().ok()).map(|v| v.round() as i32);
         let clock = it.next().and_then(|v| v.trim().parse::<f32>().ok()).map(|v| v.round() as i32);
-        Some((temp, power, clock))
+        let mut next=||it.next().and_then(|v|v.trim().parse::<f32>().ok()).filter(|v|v.is_finite() && *v>=0.).map(|v|v.round() as i32);
+        Some((temp,power,clock,next(),next(),next()))
     }
 
     /// Text report for `--diag`: what NVML sees and what nvidia-smi returns.
@@ -172,8 +183,8 @@ mod imp {
         let mut out = String::new();
         match Nvml::new() {
             Ok(n) => {
-                let (t, w, c) = n.sample();
-                out.push_str(&format!("NVML: OK  temperature={t:?} power={w:?} clock={c:?}\n"));
+                let (t, w, c, used, total, fan) = n.sample();
+                out.push_str(&format!("NVML: OK  temperature={t:?} power={w:?} clock={c:?} vram_used_mb={used:?} vram_total_mb={total:?} fan_percent={fan:?}\n"));
             }
             Err(e) => out.push_str(&format!("NVML: FAILED ({e})\n")),
         }
@@ -234,7 +245,7 @@ mod imp {
         pub fn sample(&self) -> Reading {
             match &self.src {
                 Source::Nvml(n) => n.sample(),
-                Source::Smi(s) => s.lock().map(|g| *g).unwrap_or((None, None, None)),
+                Source::Smi(s) => s.lock().map(|g| *g).unwrap_or((None, None, None, None, None, None)),
             }
         }
     }
@@ -253,8 +264,8 @@ mod imp {
         pub fn describe(&self) -> &str {
             ""
         }
-        pub fn sample(&self) -> (Option<i32>, Option<i32>, Option<i32>) {
-            (None, None, None)
+        pub fn sample(&self) -> (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>) {
+            (None, None, None, None, None, None)
         }
     }
 }

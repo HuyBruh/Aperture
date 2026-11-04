@@ -709,7 +709,7 @@ fn parse_args() -> anyhow::Result<Config> {
                 .ok_or_else(|| anyhow::anyhow!("language: '{v}' not valid ({})", Lang::NAMES))?,
         },
     };
-    let background = background_cli.or_else(|| file.get("background").map(Into::into));
+    let background = background_cli.or_else(|| file.get("background").filter(|v| !v.trim().is_empty()).map(Into::into));
     let background_dim = match background_dim_cli {
         Some(v) => v,
         None => file.get_u32("background_dim").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(40),
@@ -1701,7 +1701,7 @@ fn main() -> anyhow::Result<()> {
 
     // AMD GPU sensor (Edge temperature, ASIC power, fan RPM) via ADL PMLog.
     // Graceful: if the driver isn't present / the GPU isn't AMD, a warning is printed and execution continues (N/A).
-    let gpu_amd = gpu_amd::GpuAmdSensor::new();
+    let gpu_amd = gpu_amd::GpuAmdSensor::with_preference(&opts().pro.amd_adapter);
     // NVIDIA GPU: temperature/power via NVML (ADL only covers AMD).
     let nvml = gpu_nvml::NvSensor::new();
     if let Some(n) = &nvml {
@@ -1715,6 +1715,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let mut latest_gpu_data = gpu_amd::GpuAmdData::default();
+    #[cfg(windows)]
+    let mut fps_target = fps_etw::Target::default();
 
     // Weather (Open-Meteo): current temperature/humidity/condition for a city given
     // in the config, or auto-detected from the machine's public IP otherwise. Runs
@@ -1923,7 +1925,8 @@ fn main() -> anyhow::Result<()> {
             !ui_layouts.is_empty() && ui_layouts[layout_index.min(ui_layouts.len() - 1)].0.name == "default2",
             std::sync::atomic::Ordering::Relaxed,
         );
-        let ui_show = opts().show;
+        let mut ui_show = opts().show;
+        if opts().pro.custom_enabled {ui_show.spectrum=false;ui_show.dashboard=false;}
         // Music screen: a track is playing (sound + player info) and we're not gaming.
         let track = track_shared.lock().ok().and_then(|g| g.clone());
         let music_screen_on = music_screen_active(
@@ -2032,18 +2035,32 @@ fn main() -> anyhow::Result<()> {
             // NVIDIA takes priority: on a PC with an AMD iGPU, ADL would report the
             // iGPU's power (with no temperature) and would hide the real NVIDIA card.
             if let Some(n) = &nvml {
-                let (t, w, c) = n.sample();
+                let (t, w, c, used, total, fan_pct) = n.sample();
                 if t.is_some() || w.is_some() {
+                    // NVIDIA readings must not inherit AMD iGPU sensor values.
+                    latest_gpu_data = gpu_amd::GpuAmdData::default();
+                    latest_gpu_data.vram_used_mb=used;latest_gpu_data.vram_total_mb=total;latest_gpu_data.fan_pct=fan_pct;
                     latest_gpu_data.temp_edge_c = t;
                     latest_gpu_data.power_w = w;
                     latest_gpu_data.clock_mhz = c;
                 }
             }
-            if latest_gpu_data.fps.is_none() {
-                #[cfg(windows)]
-                if let Some(pid) = foreground::foreground_pid() {
-                    latest_gpu_data.fps = fps_etw::fps_for_pid(pid).map(|f| f as i32);
-                }
+            #[cfg(windows)]
+            {
+                let process_fps = if config.fps_monitor {
+                    fps_target.sample(foreground::foreground_pid(), fps_etw::fps_for_pid)
+                } else {
+                    None
+                };
+                latest_gpu_data.fps = fps_etw::prefer_process_fps(process_fps, latest_gpu_data.fps);
+                set_status("fps_source", if process_fps.is_some() { "process_etw" }
+                    else if latest_gpu_data.fps.is_some() { "amd_driver" } else { "unavailable" });
+                set_status("fps_capture", match fps_etw::status() {
+                    fps_etw::Status::Running => "running",
+                    fps_etw::Status::NeedsAdmin => "needs_admin",
+                    fps_etw::Status::Failed => "failed",
+                    fps_etw::Status::NotStarted => "disabled",
+                });
             }
         }
         // "Gaming" mode detection: GPU usage > 50%. Used for two things:
@@ -2138,6 +2155,12 @@ fn main() -> anyhow::Result<()> {
             let fan_pick = opts().pro.fan_sensor.clone();
             let ext_fan = ext.and_then(|s| s.cpu_fan(Some(fan_pick.as_str()).filter(|f| !f.is_empty())));
             let mut gpu_full = latest_gpu_data.clone();
+            let gpu_fan_pick = opts().pro.gpu_fan_sensor;
+            if gpu_full.fan_rpm.is_none() || !gpu_fan_pick.is_empty() {
+                let external_rpm = ext.and_then(|s| s.gpu_fan(&gpu_fan_pick));
+                gpu_full.fan_rpm = external_rpm.and_then(|rpm| i32::try_from(rpm).ok())
+                    .or(gpu_full.fan_rpm);
+            }
             if gpu_full.temp_hotspot_c.is_none() {
                 gpu_full.temp_hotspot_c = ext.and_then(|s| s.gpu_hotspot());
             }
@@ -2370,7 +2393,8 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
     let mut background = background;
     let (wd, gpu_data, weather) = preview_data();
     let o = opts();
-    let ui_show = o.show;
+    let mut ui_show = o.show;
+    if o.pro.custom_enabled {ui_show.spectrum=false;ui_show.dashboard=false;}
 
     // Which screen: the layout list entry asked for, or the standard one.
     let layouts_list = &config.ui.layouts;

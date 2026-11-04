@@ -14,6 +14,9 @@ use std::time::{Duration, Instant};
 use aperture::conf_edit::ConfDoc;
 use aperture::sensors_ext::{self, Snapshot, Source};
 
+#[path = "../custom_editor.rs"]
+mod custom_editor;
+
 // ------------------------------------------------------------------------ look
 
 const BG: Color32 = Color32::from_rgb(16, 18, 19);
@@ -133,6 +136,8 @@ const LAYOUTS: &[LayoutInfo] = &[
     APERTURE_LAYOUTS[2],
     APERTURE_LAYOUTS[3],
     APERTURE_LAYOUTS[4],
+    APERTURE_LAYOUTS[5],
+    APERTURE_LAYOUTS[6],
     LayoutInfo { key: "focus", name: "Focus", en: "Huge numbers, nothing else", vi: "Số cực lớn, tối giản", portrait: false },
     LayoutInfo { key: "grid", name: "Grid", en: "Even tiles like phone widgets", vi: "Ô đều nhau như widget điện thoại", portrait: false },
     LayoutInfo { key: "stack", name: "Stack", en: "Three full-width rows, six readings each", vi: "Ba hàng ngang, mỗi hàng sáu thông số", portrait: false },
@@ -171,6 +176,7 @@ const THEMES: &[ThemeInfo] = &[
     APERTURE_PALETTES[2],
     APERTURE_PALETTES[3],
     APERTURE_PALETTES[4],
+    APERTURE_PALETTES[5],
     ThemeInfo { key: "nzxt", name: "NZXT", colors: [(124, 92, 255), (34, 211, 238), (244, 114, 182)] },
     ThemeInfo { key: "graphite", name: "Graphite", colors: [(150, 150, 158), (210, 210, 214), (255, 255, 255)] },
     ThemeInfo { key: "crimson", name: "Crimson", colors: [(220, 20, 50), (255, 99, 99), (251, 146, 60)] },
@@ -199,6 +205,8 @@ fn render(exe: &Path, workdir: &Path, text: &str, layout: Option<&str>, music: b
     doc.set("flip", "false");
     if let Some(l) = layout {
         doc.set("pro_layout", l);
+        doc.set("pro_custom_enabled", "false");
+        doc.set("pro_edit_layout", "");
     }
     // a single theme in the pictures (not the whole rotation)
     if let Some(t) = doc.get("pro_theme") {
@@ -301,6 +309,8 @@ struct Status {
     cpu_temp: Option<String>,
     cpu_fan: Option<String>,
     gpu_hotspot: Option<String>,
+    fps_source: Option<String>,
+    fps_capture: Option<String>,
     /// The display program wrote its file in the last 30 s.
     alive: bool,
     pawnio: Option<bool>,
@@ -320,6 +330,8 @@ fn read_status(dir: &Path) -> Status {
                     "cpu_temp" => s.cpu_temp = Some(v),
                     "cpu_fan" => s.cpu_fan = Some(v),
                     "gpu_hotspot" => s.gpu_hotspot = Some(v),
+                    "fps_source" => s.fps_source = Some(v),
+                    "fps_capture" => s.fps_capture = Some(v),
                     _ => {}
                 }
             }
@@ -377,13 +389,14 @@ fn run_elevated(script: &str) {
     }
 }
 
-const RESTART_SCRIPT: &str = "Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay";
-const PAWNIO_SCRIPT: &str = "winget install --id namazso.PawnIO -e --silent --accept-source-agreements --accept-package-agreements; Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay";
+const RESTART_SCRIPT: &str = "Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; if (!$?) { Start-ScheduledTask -TaskName TrofeoLCD }";
+const PAWNIO_SCRIPT: &str = "winget install --id namazso.PawnIO -e --silent --accept-source-agreements --accept-package-agreements; Stop-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Start-ScheduledTask -TaskName ApertureDisplay -ErrorAction SilentlyContinue; if (!$?) { Start-ScheduledTask -TaskName TrofeoLCD }";
 
 // ------------------------------------------------------------------------ app
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
+    Canvas,
     Layouts,
     Colors,
     Display,
@@ -852,6 +865,7 @@ impl App {
     fn tabs(&mut self, ui: &mut egui::Ui) {
         let pages = [
             (Page::Layouts, self.t("Layouts", "Bố cục")),
+            (Page::Canvas, "Customize"),
             (Page::Colors, self.t("Colors", "Màu sắc")),
             (Page::Display, self.t("Display", "Hiển thị")),
             (Page::Features, self.t("Features", "Tính năng")),
@@ -880,10 +894,15 @@ impl App {
 
     fn page_layouts(&mut self, ui: &mut egui::Ui) {
         let current = self.get_or("pro_layout", "axis");
-        section_title(ui, self.t("The collection", "Bộ sưu tập"), self.t("Five new compositions, plus Focus and Grid. Designed for the 1920 × 462 display.", "Năm bố cục mới cùng Focus và Grid. Thiết kế cho màn 1920 × 462."));
-        let land: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && matches!(l.key,"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
+        section_title(ui, self.t("The collection", "Bộ sưu tập"), self.t("Seven Aperture compositions, plus Focus and Grid. Designed for the 1920 × 462 display.", "Bảy bố cục Aperture cùng Focus và Grid. Thiết kế cho màn 1920 × 462."));
+        ui.horizontal(|ui| {
+            if ui.button("Customize selected theme").clicked(){self.edit_current_theme();}
+            ui.label("Keep the original design and edit your own copy.");
+        });
+        let land: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && matches!(l.key,"panorama"|"cinema"|"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
         if let Some(k) = self.grid(ui, &land, &current, 2) {
             self.set("pro_layout", &k);
+            self.set("pro_custom_enabled","false");
         }
         ui.add_space(8.0);
         card(ui, |ui| {
@@ -892,19 +911,20 @@ impl App {
             let help = self.t("Changes layout every 30 minutes", "Đổi bố cục mỗi 30 phút").to_string();
             row(ui, &lbl, &help, |ui| {
                 if toggle(ui, &mut on).changed() {
-                    self.set("pro_layout", if on { "all" } else { "axis" });
+                    self.set("pro_layout", if on { "all" } else { "axis" });self.set("pro_custom_enabled","false");
                 }
             });
         });
         ui.add_space(12.0);
         ui.collapsing(self.t("Legacy landscape layouts", "Các bố cục ngang trước đây"), |ui| {
-            let legacy: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && !matches!(l.key,"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
-            if let Some(k) = self.grid(ui,&legacy,&current,3) {self.set("pro_layout",&k);}
+            let legacy: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| !l.portrait && !matches!(l.key,"panorama"|"cinema"|"axis"|"ledger"|"duet"|"orbit"|"atelier"|"focus"|"grid")).collect();
+            if let Some(k) = self.grid(ui,&legacy,&current,3) {self.set("pro_layout",&k);self.set("pro_custom_enabled","false");}
         });
         section_title(ui, self.t("Portrait", "Màn hình dựng đứng"), self.t("For a display mounted vertically. Choose the turn direction on the Display page.", "Dành cho màn hình gắn dọc. Chọn chiều xoay ở trang Hiển thị."));
         let port: Vec<&LayoutInfo> = LAYOUTS.iter().filter(|l| l.portrait).collect();
         if let Some(k) = self.grid(ui, &port, &current, 5) {
             self.set("pro_layout", &k);
+            self.set("pro_custom_enabled","false");
         }
     }
 
@@ -961,7 +981,7 @@ impl App {
         let w = ui.available_width();
         let cols = 4usize;
         let cw = ((w - GAP * (cols as f32 - 1.0)) / cols as f32).floor();
-        let mut all: Vec<(String, String, [(u8, u8, u8); 3])> = THEMES.iter().take(5).map(|t| (t.key.to_string(), t.name.to_string(), t.colors)).collect();
+        let mut all: Vec<(String, String, [(u8, u8, u8); 3])> = APERTURE_PALETTES.iter().map(|t| (t.key.to_string(), t.name.to_string(), t.colors)).collect();
         let c = self.custom;
         all.push(("custom".into(), self.t("Custom color", "Màu tùy chọn").into(), [(c[0], c[1], c[2]), lighten(c, 0.35), lighten(c, 0.6)]));
         all.push(("all".into(), self.t("Rotate all", "Xoay vòng tất cả").into(), [(124, 92, 255), (251, 146, 60), (56, 189, 248)]));
@@ -993,7 +1013,7 @@ impl App {
         }
         ui.collapsing(self.t("Legacy palettes", "Bộ màu trước đây"), |ui| {
             ui.horizontal_wrapped(|ui| {
-                for t in THEMES.iter().skip(5) {
+                for t in THEMES.iter().skip(APERTURE_PALETTES.len()) {
                     if ui.selectable_label(t.key == theme, t.name).clicked() {
                         self.set("pro_theme", t.key);
                     }
@@ -1354,6 +1374,24 @@ impl App {
                 }
             }
             divider(ui);
+            let fps_status = if !s.alive {
+                "Display program not running".to_owned()
+            } else {
+                format!("Capture: {} · Source: {}",
+                    s.fps_capture.as_deref().unwrap_or("unknown"),
+                    s.fps_source.as_deref().unwrap_or("unavailable"))
+            };
+            row(ui, "Game FPS", "Shows the source currently providing FPS.", |ui| {
+                ui.label(fps_status);
+            });
+            divider(ui);
+            let mut adapter = self.get("pro_amd_adapter").unwrap_or_default();
+            row(ui, "AMD adapter", "Name or model, e.g. 9070 XT. Leave empty for auto. Restart the display after changing.", |ui| {
+                if ui.text_edit_singleline(&mut adapter).changed() {
+                    self.set("pro_amd_adapter", &adapter);
+                }
+            });
+            divider(ui);
             // CPU fan
             let (c, t) = st_fan;
             let lbl = self.t("CPU fan speed", "Tốc độ quạt CPU").to_string();
@@ -1362,7 +1400,7 @@ impl App {
                 if !snap.fans.is_empty() {
                     let cur = self.get("pro_fan_sensor").unwrap_or_default();
                     let auto = self.t("Automatic", "Tự động").to_string();
-                    let lbl = self.t("Which fan is the CPU fan?", "Quạt nào là quạt CPU?").to_string();
+                    let lbl = self.t("CPU fan or pump", "Quạt CPU hoặc bơm").to_string();
                     let help = format!("{} {}", self.t("Fans reported by", "Các quạt mà"), ext_name(ext_src)) + self.t("", " báo về");
                     let mut pick: Option<String> = None;
                     row(ui, &lbl, &help, |ui| {
@@ -1372,13 +1410,34 @@ impl App {
                                 pick = Some(String::new());
                             }
                             for f in &snap.fans {
-                                let txt = format!("{}  ·  {:.0} RPM", f.label, f.value);
-                                if ui.selectable_label(f.label == cur, txt).clicked() {
-                                    pick = Some(f.label.clone());
+                                let txt = format!("{}  ·  {:.0} RPM", f.selector(), f.value);
+                                if ui.selectable_label((f.label == cur || f.selector() == cur), txt).clicked() {
+                                    pick = Some(f.selector());
                                 }
                             }
                         });
                     });
+                    let gpu_cur = self.get("pro_gpu_fan_sensor").unwrap_or_default();
+                    let mut gpu_pick = None;
+                    row(ui, "GPU fan RPM", "Choose a fan from your graphics card.", |ui| {
+                        egui::ComboBox::from_id_salt("gpu_fan_pick")
+                            .selected_text(if gpu_cur.is_empty() { "Automatic" } else { &gpu_cur })
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(gpu_cur.is_empty(), "Automatic").clicked() {
+                                    gpu_pick = Some(String::new());
+                                }
+                                for fan in &snap.fans {
+                                    let selector = fan.selector();
+                                    if ui.selectable_label(selector == gpu_cur, format!("{selector} · {:.0} RPM", fan.value)).clicked() {
+                                        gpu_pick = Some(selector);
+                                    }
+                                }
+                            });
+                    });
+                    if let Some(value) = gpu_pick {
+                        if value.is_empty() { self.unset("pro_gpu_fan_sensor"); }
+                        else { self.set("pro_gpu_fan_sensor", &value); }
+                    }
                     match pick.as_deref() {
                         Some("") => self.unset("pro_fan_sensor"),
                         Some(v) => self.set("pro_fan_sensor", v),
@@ -1454,7 +1513,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(egui::Frame::none().fill(BG).inner_margin(egui::Margin::symmetric(28.0, 20.0))).show(ctx, |ui| {
             self.header(ui);
             ui.add_space(12.0);
-            self.preview_card(ui);
+            if self.page != Page::Canvas { self.preview_card(ui); }
             ui.add_space(12.0);
             self.tabs(ui);
             ui.add_space(8.0);
@@ -1462,6 +1521,7 @@ impl eframe::App for App {
                 ui.add_space(4.0);
                 match self.page {
                     Page::Layouts => self.page_layouts(ui),
+                    Page::Canvas => self.page_canvas(ui),
                     Page::Colors => self.page_colors(ui),
                     Page::Display => self.page_display(ui),
                     Page::Features => self.page_features(ui),

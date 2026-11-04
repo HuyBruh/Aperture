@@ -176,7 +176,7 @@ mod imp {
     }
 
     impl GpuAmdInner {
-        pub(super) fn new() -> Option<Self> {
+        pub(super) fn new(preferred: &str) -> Option<Self> {
             // Load the DLL (present in PATH once the Radeon driver is installed)
             let dll = CString::new("atiadlxx.dll").ok()?;
             let module = unsafe {
@@ -209,17 +209,6 @@ mod imp {
                     return None;
                 }
 
-                // Find the first "present" AMD adapter (vendor_id 1002 decimal —
-                // not hex 0x1002 = 4098 — a slightly odd ADL quirk, confirmed
-                // from probe output).
-                let chosen = adapters.iter().find(|a| a.present != 0 && a.vendor_id == 1002)?;
-                let adapter_index = chosen.adapter_index;
-                let name = {
-                    let raw: Vec<u8> = chosen.adapter_name.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
-                    let n = String::from_utf8_lossy(&raw).trim().to_string();
-                    (!n.is_empty()).then_some(n)
-                };
-
                 // Done with ADL v1, can destroy it now.
                 if let Some(destroy1) =
                     resolve::<AdlMainControlDestroyFn>(module, "ADL_Main_Control_Destroy")
@@ -239,6 +228,31 @@ mod imp {
                 if create2(adl_malloc, 1, &mut context) != 0 || context.is_null() {
                     return None;
                 }
+
+                let memory_info = resolve::<AdlMemoryInfo2Fn>(module, "ADL2_Adapter_MemoryInfo2_Get");
+                let memory_bytes = |index| {
+                    let mut info: AdlMemoryInfo2 = std::mem::zeroed();
+                    memory_info.filter(|read| read(context, index, &mut info) == 0)
+                        .map_or(0, |_| info.memory_size.max(0))
+                };
+                let chosen = adapters.iter()
+                    .filter(|adapter| adapter.present != 0 && adapter.vendor_id == 1002)
+                    .map(|adapter| {
+                        let bytes: Vec<u8> = adapter.adapter_name.iter()
+                            .take_while(|&&byte| byte != 0).map(|&byte| byte as u8).collect();
+                        let name = String::from_utf8_lossy(&bytes).trim().to_owned();
+                        (adapter.adapter_index, name)
+                    })
+                    .max_by_key(|(index, name)| {
+                        let matches = !preferred.is_empty()
+                            && name.to_ascii_lowercase().contains(&preferred.to_ascii_lowercase());
+                        (matches, memory_bytes(*index), std::cmp::Reverse(*index))
+                    });
+                let Some((adapter_index, adapter_name)) = chosen else {
+                    if let Some(destroy) = destroy2_fn { destroy(context); }
+                    return None;
+                };
+                let name = (!adapter_name.is_empty()).then_some(adapter_name);
 
                 // --- FrameMetrics (Fullscreen FPS) — uses the context above ---
                 // If the adapter doesn't support it, or one of the symbols is
@@ -547,10 +561,12 @@ pub struct GpuAmdSensor {
 impl GpuAmdSensor {
     /// Initialize. If the sensor isn't found (missing driver/DLL, or not an
     /// AMD GPU), print a warning and continue (sensor N/A).
-    pub fn new() -> Self {
+    pub fn new() -> Self { Self::with_preference("") }
+
+    pub fn with_preference(_preferred: &str) -> Self {
         #[cfg(windows)]
         {
-            let inner = imp::GpuAmdInner::new();
+            let inner = imp::GpuAmdInner::new(_preferred);
             if inner.is_none() {
                 eprintln!(
                     "AMD GPU ADL: not available — make sure the AMD Radeon driver \

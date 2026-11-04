@@ -65,6 +65,7 @@ pub const THEMES: &[Theme] = &[
     APERTURE_THEMES[2],
     APERTURE_THEMES[3],
     APERTURE_THEMES[4],
+    APERTURE_THEMES[5],
     // violet / cyan / pink on near-black (NZXT CAM-like)
     Theme {
         name: "nzxt", bg: (0, 0, 0), panel: (12, 13, 17), text: (242, 243, 246), muted: (168, 172, 184), dim: (118, 122, 136),
@@ -118,6 +119,8 @@ pub enum Style {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
     Axis,
+    Panorama,
+    Cinema,
     Ledger,
     Duet,
     Orbit,
@@ -172,14 +175,16 @@ pub enum Layout {
 }
 
 impl Layout {
-    pub const CURATED: [Layout; 7] = [Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid];
+    pub const CURATED: [Layout; 9] = [Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid];
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 23] = [Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 25] = [Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
         match self {
             Layout::Axis => "axis",
+            Layout::Panorama => "panorama",
+            Layout::Cinema => "cinema",
             Layout::Ledger => "ledger",
             Layout::Duet => "duet",
             Layout::Orbit => "orbit",
@@ -211,7 +216,7 @@ impl Layout {
     }
     /// The clean collection, drawn with Inter.
     pub fn clean(self) -> bool {
-        matches!(self, Layout::Axis | Layout::Ledger | Layout::Duet | Layout::Orbit | Layout::Atelier | Layout::Focus | Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
+        matches!(self, Layout::Panorama | Layout::Cinema | Layout::Axis | Layout::Ledger | Layout::Duet | Layout::Orbit | Layout::Atelier | Layout::Focus | Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {
@@ -250,11 +255,21 @@ pub struct Settings {
     pub clock12: bool,
     /// Label of the fan to show as CPU fan (HWiNFO / LibreHardwareMonitor); empty = automatic.
     pub fan_sensor: String,
+    pub gpu_fan_sensor: String,
+    pub logo: String,
+    pub amd_adapter: String,
+    pub edit_layout: String,
+    pub edit_background: bool,
+    pub edit_hidden: String,
+    pub edit_text_scale: f32,
+    pub edit_widgets: Vec<aperture::custom::Widget>,
+    pub custom_enabled: bool,
+    pub custom_widgets: Vec<aperture::custom::Widget>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { layouts: vec![Layout::Axis], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false, game_layout: None, game_theme: None, night: None, night_theme: None, night_dim: 40, alert_cpu: 0, alert_gpu: 0, clock12: false, fan_sensor: String::new() }
+        Settings { layouts: vec![Layout::Axis], themes: vec![THEMES[0]], style: Style::Cards, interval_min: 30, cover_color: true, song_popup: true, rotate_ccw: false, game_layout: None, game_theme: None, night: None, night_theme: None, night_dim: 40, alert_cpu: 0, alert_gpu: 0, clock12: false, fan_sensor: String::new(), gpu_fan_sensor: String::new(), logo: String::new(), amd_adapter: String::new(), edit_layout: String::new(), edit_background: false, edit_hidden: String::new(), edit_text_scale: 1., edit_widgets: Vec::new(), custom_enabled: false, custom_widgets: Vec::new() }
     }
 }
 
@@ -341,6 +356,16 @@ fn parse_time_range(key: &str, v: &str) -> anyhow::Result<(u32, u32)> {
 
 pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
     let mut s = Settings::default();
+    s.gpu_fan_sensor = file.get("pro_gpu_fan_sensor").unwrap_or("").trim().to_string();
+    s.amd_adapter = file.get("pro_amd_adapter").unwrap_or("").trim().to_string();
+    s.logo = file.get("pro_logo").unwrap_or("").trim().to_string();
+    s.edit_background=file.get("background").is_some_and(|v|!v.trim().is_empty());
+    s.edit_hidden=file.get("pro_edit_hidden").unwrap_or("").to_string();
+    s.edit_text_scale=file.get_f32("pro_edit_text_scale").map_err(anyhow::Error::msg)?.unwrap_or(1.).clamp(0.85,1.15);
+    s.edit_layout=file.get("pro_edit_layout").unwrap_or("").to_string();
+    s.edit_widgets=aperture::custom::parse(file.get("pro_edit_widgets").unwrap_or("")).map_err(anyhow::Error::msg)?;
+    s.custom_enabled = file.get_bool("pro_custom_enabled").map_err(anyhow::Error::msg)?.unwrap_or(false);
+    s.custom_widgets = aperture::custom::parse(file.get("pro_custom_widgets").unwrap_or("")).map_err(anyhow::Error::msg)?;
     let accent = match file.get("pro_accent") {
         Some(v) => Some(parse_hex(v).ok_or_else(|| anyhow::anyhow!("pro_accent: '{v}' is not a color (#RRGGBB)"))?),
         None => None,
@@ -349,7 +374,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
         let mut list = Vec::new();
         for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty()) {
             if name == "all" {
-                list.extend_from_slice(&THEMES[..5]);
+                list.extend_from_slice(APERTURE_THEMES);
                 continue;
             }
             list.push(theme_of(&name, accent, "pro_theme")?);
@@ -361,7 +386,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
         s.themes = vec![Theme::from_accent(c)];
     }
     for (key, slot) in [("pro_game_theme", 0), ("pro_night_theme", 1)] {
-        if let Some(v) = file.get(key) {
+        if let Some(v) = file.get(key).filter(|v| !v.trim().is_empty()) {
             let t = theme_of(&v.trim().to_ascii_lowercase(), accent, key)?;
             if slot == 0 {
                 s.game_theme = Some(t);
@@ -370,7 +395,7 @@ pub fn parse(file: &ConfigFile) -> anyhow::Result<Settings> {
             }
         }
     }
-    if let Some(v) = file.get("pro_game_layout") {
+    if let Some(v) = file.get("pro_game_layout").filter(|v| !v.trim().is_empty()) {
         let name = v.trim().to_ascii_lowercase();
         s.game_layout = Some(Layout::find(&name).ok_or_else(|| anyhow::anyhow!("pro_game_layout: '{name}' is not a layout"))?);
     }
@@ -563,6 +588,7 @@ pub struct ProScreen {
     last_push: Option<Instant>,
     hist_ver: u64,
     cover: Option<Cover>,
+    logo: (String, Option<Cover>),
     /// Titles too long for their box, scrolled on every frame, and since when.
     marquees: Vec<MarqueeSpec>,
     marquee_since: Instant,
@@ -646,6 +672,7 @@ impl ProScreen {
             last_push: None,
             hist_ver: 0,
             cover: None,
+            logo: (String::new(), None),
             marquees: Vec::new(),
             marquee_since: Instant::now(),
             marquee_k: 1.0,
@@ -855,6 +882,30 @@ impl ProScreen {
         let (mut theme, mut layout) = pick(&settings);
         self.push_history(d);
         self.update_cover(d);
+        if self.logo.0 != settings.logo {
+            let cover = (|| {
+                let mut reader = image::ImageReader::open(&settings.logo).ok()?;
+                let mut limits = image::Limits::default();
+                limits.max_image_width = Some(4096);
+                limits.max_image_height = Some(4096);
+                reader.limits(limits);
+                let image = reader.decode().ok()?.thumbnail(256, 256).to_rgba8();
+                let mut square = image::RgbImage::new(256, 256);
+                let x = (256 - image.width()) / 2;
+                let y = (256 - image.height()) / 2;
+                for (px, py, rgba) in image.enumerate_pixels() {
+                    let alpha = u16::from(rgba[3]);
+                    square.put_pixel(x + px, y + py, image::Rgb([
+                        (u16::from(rgba[0]) * alpha / 255) as u8,
+                        (u16::from(rgba[1]) * alpha / 255) as u8,
+                        (u16::from(rgba[2]) * alpha / 255) as u8,
+                    ]));
+                }
+                Some(Cover { key: 0, size: 256, rgb: square.into_raw(),
+                    accent: (0, 0, 0), palette: [(0, 0, 0); 3] })
+            })();
+            self.logo = (settings.logo.clone(), cover);
+        }
         let gaming = self.update_game(d);
         self.update_alerts(d, &settings);
         let night = settings.night.is_some_and(|(a, b)| {
@@ -886,7 +937,7 @@ impl ProScreen {
             }
         }
         CURRENT.with(|c| c.set((theme, settings.style)));
-        fb.clear(theme.bg.0, theme.bg.1, theme.bg.2);
+        if !settings.custom_enabled && !(settings.edit_background && settings.edit_layout==layout.name()) { fb.clear(theme.bg.0, theme.bg.1, theme.bg.2); }
         // a new song opens its pop-up (not at start-up, not when the same song resumes)
         let key = d.track.map(|t| (t.title.clone(), t.artist.clone()));
         if let Some(k) = key {
@@ -924,7 +975,8 @@ impl ProScreen {
             progress,
             self.hist_ver,
         ) + &format!("|{}", settings.clock12);
-        let portrait = layout.portrait();
+        let sig = sig + &format!("|{}|{:?}",settings.custom_enabled,(&settings.custom_widgets,&settings.edit_layout,&settings.edit_widgets,&settings.edit_hidden,settings.edit_text_scale, &settings.logo));
+        let portrait = !settings.custom_enabled && layout.portrait();
         if sig != self.sig {
             let (w, h) = (area.2, area.3);
             let (cw, ch) = if portrait { (h, w) } else { (w, h) };
@@ -942,7 +994,11 @@ impl ProScreen {
             }
             let stats = self.session_stats(gaming);
             STATS.with(|s| *s.borrow_mut() = stats);
-            let cover = self.cover.as_ref();
+            let cover = if !matches!(layout.name(), "axis" | "ledger" | "duet" | "orbit" | "atelier" | "panorama" | "cinema") {
+                self.cover.as_ref()
+            } else {
+                self.logo.1.as_ref().or(self.cover.as_ref())
+            };
             let hist = (&self.cpu, &self.gpu, &self.net);
             let target_layer: &mut Layer = if portrait { &mut self.canvas } else { &mut self.layer };
             let mut p = Painter { layer: target_layer, font: FontStyle::Smooth };
@@ -951,12 +1007,12 @@ impl ProScreen {
             let (wf, hf) = (cw as f32, ch as f32);
             let k = if portrait { (wf / 462.0).clamp(0.5, 2.0) } else { (hf / 462.0).min(wf / 1920.0 * 1.15).clamp(0.5, 2.0) };
             let sc = Scale::new(k);
-            match layout {
+            if settings.custom_enabled { designs::paint_custom(&mut p,wf,hf,d,&now,&settings.custom_widgets); } else { match layout {
                 Layout::Classic => paint(&mut p, wf, hf, d, &now, hist, cover),
                 Layout::Cockpit => paint_cockpit(&mut p, wf, hf, &sc, d, &now, cover),
                 Layout::Focus => paint_focus(&mut p, wf, hf, &sc, d, &now, hist, cover),
                 _ => designs::paint(layout, &mut p, wf, hf, &sc, d, &now, hist, cover),
-            }
+            }}
             if portrait {
                 self.canvas.rotate_into(&mut self.layer, settings.rotate_ccw);
             }
@@ -2749,12 +2805,20 @@ fn paint_focus(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, now: &chro
 
 #[cfg(test)]
 mod aperture_tests {
+    #[test]
+    fn empty_optional_game_overrides_are_disabled() {
+        let file = super::ConfigFile::parse("pro_game_layout = \npro_game_theme = \npro_night_theme = \n").unwrap();
+        let settings = super::parse(&file).unwrap();
+        assert!(settings.game_layout.is_none());
+        assert!(settings.game_theme.is_none());
+        assert!(settings.night_theme.is_none());
+    }
     use super::*;
     #[test]
     fn collection_rotation_and_legacy_keys_are_compatible() {
         let s=parse(&ConfigFile::parse("pro_layout = all\npro_theme = all\n").unwrap()).unwrap();
         assert_eq!(s.layouts, Layout::CURATED.to_vec());
-        assert_eq!(s.themes.len(),5);
+        assert_eq!(s.themes.len(),APERTURE_THEMES.len());
         for key in ["focus","grid","cockpit","stack","blueprint"] {
             let text=format!("pro_layout = {key}\npro_theme = neon\n");
             assert!(parse(&ConfigFile::parse(&text).unwrap()).is_ok());

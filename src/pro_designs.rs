@@ -11,6 +11,36 @@
 
 use super::*;
 
+pub(super) fn paint_custom(p: &mut Painter, w: f32, h: f32, d: &Data, now: &chrono::DateTime<Local>, widgets: &[aperture::custom::Widget]) {
+    let v = vm(d, now);
+    for widget in widgets {
+        let key=widget.sensor.as_str();
+        let selected = match key {
+            "cpu_load"=>Some(&v.cpu[0]), "cpu_power"=>Some(&v.cpu[1]), "cpu_clock"=>Some(&v.cpu[2]), "cpu_fan"=>Some(&v.cpu[3]),
+            "uptime"=>Some(&v.cpu[4]), "network_down"=>Some(&v.cpu[5]), "network_up"=>Some(&v.cpu[6]),
+            "gpu_hotspot"=>Some(&v.gpu[0]), "gpu_load"=>Some(&v.gpu[1]), "gpu_power"=>Some(&v.gpu[2]), "gpu_fan"=>Some(&v.gpu[3]),
+            "gpu_clock"=>Some(&v.gpu[4]), "vram"=>Some(&v.gpu[5]), "fps"=>Some(&v.gpu[6]),
+            "ram_used"=>Some(&v.mem[0]), "ram_free"=>Some(&v.mem[1]), "ssd_temp"=>Some(&v.mem[2]), "disk_used"=>Some(&v.mem[3]), "disk_read"=>Some(&v.mem[4]), "disk_write"=>Some(&v.mem[5]), _=>None,
+        };
+        let value=if let Some(item)=selected {format!("{} {}",item.value,if key=="fps" {"FPS"}else{&item.unit})} else {match key {
+            "cpu_temp"=>format!("{} °C",v.cpu_temp), "gpu_temp"=>format!("{} °C",v.gpu_temp),
+            "clock"=>v.hhmm.clone(), "date"=>v.date.clone(),
+            "weather"=>v.wx.as_ref().map(|wx|format!("{} {}",wx.temp,wx.cond)).unwrap_or("--".into()),
+            "music"=>d.track.map(|t|format!("{} — {}",t.title,t.artist)).unwrap_or("Nothing playing".into()), _=>"--".into(),
+        }};
+        let sx=w/1920.; let sy=h/462.; let k=sx.min(sy);
+        let (x,y,ww,hh)=(widget.x*sx,widget.y*sy,widget.w*sx,widget.h*sy);
+        if widget.panel { p.layer.fill_rrect_solid((x,y,ww,hh),12.*k,(22,25,30),255); }
+        let c=(widget.color[0],widget.color[1],widget.color[2]);
+        let label=key.replace('_'," ").to_ascii_uppercase();
+        p.text(x+12.*k,y+24.*k,&label,12.*k,W::Medium,c,190);
+        let cap=widget.size*k;
+        let cap=if key!="music" { (cap * ((ww-24.*k)/p.width(&value,cap,W::Regular).max(1.)).min(1.)).max(12.*k) } else { cap };
+        let value=ellipsize(p,&value,cap,W::Regular,(ww-24.*k).max(1.));
+        p.text(x+12.*k,y+hh-16.*k,&value,cap,W::Regular,c,255);
+    }
+}
+
 #[path = "pro_minimal.rs"]
 mod minimal;
 
@@ -109,7 +139,7 @@ pub(super) fn vm(d: &Data, now: &chrono::DateTime<Local>) -> Vm {
         item("HOTSPOT", hot, "\u{b0}C", hot_c, None),
         item("LOAD", d.gpu_pct.map_or(dash(), |v| format!("{v:.0}")), if d.gpu_pct.is_some() { "%" } else { "" }, th().text, d.gpu_pct.map(|v| v / 100.0)),
         item("POWER", g.power_w.map_or(dash(), |v| v.to_string()), "W", th().text, None),
-        item("FAN", g.fan_rpm.map_or(dash(), |v| v.max(0).to_string()), "RPM", th().text, None),
+        item("FAN", g.fan_rpm.or(g.fan_pct).map_or(dash(), |v| v.max(0).to_string()), if g.fan_rpm.is_some(){"RPM"}else{"%"}, th().text, None),
         item("CLOCK", g.clock_mhz.filter(|c| *c > 0).map_or(dash(), |v| v.to_string()), "MHz", th().text, None),
         item("VRAM", vv, "GB", th().text, vf),
         match fps {
