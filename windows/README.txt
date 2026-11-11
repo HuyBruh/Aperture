@@ -21,8 +21,10 @@ aperture-display.exe and trofeo-status.txt are used by the display service.
 
 SENSORS
 Close Thermalright TRCC before starting Aperture.
-Unavailable readings show --. CPU fan RPM may require LibreHardwareMonitor
-or HWiNFO. Use Sensors & help in the settings window for diagnostics.
+Unavailable readings show --. Fan speeds are read from the motherboard through
+the PawnIO driver (installed by scripts\install.bat); LibreHardwareMonitor or
+HWiNFO are only needed on boards that cannot be read. Open Sensors in the
+settings window for live readings and diagnostics.
 
 LICENSE
 See LICENSE and NOTICE.md. Source: https://github.com/HuyBruh/Aperture

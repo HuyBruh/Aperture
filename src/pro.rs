@@ -118,6 +118,14 @@ pub enum Style {
 /// Arrangement of the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
+    /// Airport departure board: every number on split-flap tiles.
+    Board,
+    /// Paper and ink: a light spec-sheet layout (Braun / Teenage Engineering).
+    Studio,
+    /// Live charts of the last two minutes per section.
+    Pulse,
+    /// Car instrument cluster: three dials with a real scale.
+    Cluster,
     Axis,
     Panorama,
     Cinema,
@@ -175,13 +183,17 @@ pub enum Layout {
 }
 
 impl Layout {
-    pub const CURATED: [Layout; 9] = [Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid];
+    pub const CURATED: [Layout; 13] = [Layout::Board, Layout::Studio, Layout::Pulse, Layout::Cluster, Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid];
     /// The landscape designs (what `pro_layout = all` rotates through).
-    pub const ALL: [Layout; 25] = [Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
+    pub const ALL: [Layout; 29] = [Layout::Board, Layout::Studio, Layout::Pulse, Layout::Cluster, Layout::Panorama, Layout::Cinema, Layout::Axis, Layout::Ledger, Layout::Duet, Layout::Orbit, Layout::Atelier, Layout::Focus, Layout::Grid, Layout::Stack, Layout::Mosaic, Layout::Mixer, Layout::Chart, Layout::Player, Layout::Tint, Layout::Glass, Layout::Gauge, Layout::Swiss, Layout::Classic, Layout::Cockpit, Layout::Bento, Layout::Terminal, Layout::Chamfer, Layout::Rings, Layout::Dots];
     /// The portrait designs (screen mounted vertically; `pro_layout = portrait`).
     pub const PORTRAIT: [Layout; 5] = [Layout::Lock, Layout::Equalizer, Layout::Receipt, Layout::Synthwave, Layout::Blueprint];
     pub fn name(self) -> &'static str {
         match self {
+            Layout::Board => "board",
+            Layout::Studio => "studio",
+            Layout::Pulse => "pulse",
+            Layout::Cluster => "cluster",
             Layout::Axis => "axis",
             Layout::Panorama => "panorama",
             Layout::Cinema => "cinema",
@@ -216,7 +228,7 @@ impl Layout {
     }
     /// The clean collection, drawn with Inter.
     pub fn clean(self) -> bool {
-        matches!(self, Layout::Panorama | Layout::Cinema | Layout::Axis | Layout::Ledger | Layout::Duet | Layout::Orbit | Layout::Atelier | Layout::Focus | Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
+        matches!(self, Layout::Board | Layout::Studio | Layout::Pulse | Layout::Cluster | Layout::Panorama | Layout::Cinema | Layout::Axis | Layout::Ledger | Layout::Duet | Layout::Orbit | Layout::Atelier | Layout::Focus | Layout::Grid | Layout::Tint | Layout::Glass | Layout::Gauge | Layout::Stack | Layout::Mosaic | Layout::Mixer | Layout::Chart | Layout::Player)
     }
     /// Drawn on a 462 x 1920 canvas and turned 90 degrees onto the panel.
     pub fn portrait(self) -> bool {
@@ -318,14 +330,35 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Rgb {
 }
 
 impl Theme {
-    /// A single accent on neutral surfaces. Very dark accents are lifted for legibility.
+    /// A full theme grown from one color: the CPU takes the color itself, the other
+    /// sections are spread around the color wheel (the look of HuyBruh Dash 3.x).
+    /// Very dark colors are lifted so text in that color stays readable.
     pub fn from_accent(c: Rgb) -> Theme {
         let c = if c.0.max(c.1).max(c.2) < 120 { lerp_rgb(c, WHITE, 0.5) } else { c };
-        let mut t = THEMES[0];
-        t.name = "custom";
-        t.cpu = [c,c]; t.gpu = [c,c]; t.ram = [c,c];
-        t.ssd = [c,c]; t.net = [c,c]; t.up = c; t.fps = c;
-        t
+        let (h, s, _) = rgb_to_hsv(c);
+        let s = s.clamp(0.5, 0.9);
+        let pair = |dh: f32| {
+            let b = hsv_to_rgb((h + dh).rem_euclid(360.0), s, 0.96);
+            [b, lerp_rgb(b, WHITE, 0.45)]
+        };
+        let cpu = [c, lerp_rgb(c, WHITE, 0.45)];
+        let net = pair(205.0);
+        Theme {
+            name: "custom",
+            bg: (0, 0, 0),
+            panel: (12, 13, 17),
+            text: (242, 243, 246),
+            muted: (168, 172, 184),
+            dim: (118, 122, 136),
+            cpu,
+            gpu: pair(150.0),
+            ram: pair(-60.0),
+            ssd: pair(45.0),
+            net,
+            up: net[1],
+            fps: (163, 230, 53),
+            time: (255, 255, 255),
+        }
     }
 }
 
@@ -572,11 +605,53 @@ pub struct Data<'a> {
 
 struct Cover {
     key: usize,
+    /// Side of `rgb`: the full picture the player gave (up to 640 px), not a thumbnail.
     size: u32,
     rgb: Vec<u8>,
     accent: Rgb,
     /// Three distinct colors of the cover (for `pro_cover_color`).
     palette: [Rgb; 3],
+    /// The picture resized (once, with a high-quality filter) to the sizes it is drawn at.
+    scaled: std::sync::Mutex<Vec<(u32, Vec<u8>)>>,
+}
+
+impl Cover {
+    fn new(key: usize, size: u32, rgb: Vec<u8>) -> Cover {
+        // colors from a small copy: fast, and the same result as before
+        let small = scale_square(&rgb, size, size, 64);
+        let accent = cover_accent(&small);
+        let palette = cover_palette(&small, accent);
+        Cover { key, size, rgb, accent, palette, scaled: std::sync::Mutex::new(Vec::new()) }
+    }
+
+    /// The cover at `n` x `n` pixels. Shrinking uses Lanczos (sharp, no shimmer), growing a
+    /// small picture uses Catmull-Rom plus a light unsharp mask, so it stays crisp instead of
+    /// the soft look of plain bilinear stretching.
+    fn at(&self, n: u32) -> Vec<u8> {
+        if let Ok(cache) = self.scaled.lock() {
+            if let Some((_, px)) = cache.iter().find(|(s, _)| *s == n) {
+                return px.clone();
+            }
+        }
+        let px = if n == self.size {
+            self.rgb.clone()
+        } else {
+            let src = image::RgbImage::from_raw(self.size, self.size, self.rgb.clone())
+                .unwrap_or_else(|| image::RgbImage::new(self.size.max(1), self.size.max(1)));
+            let grow = n > self.size;
+            let filter = if grow { image::imageops::FilterType::CatmullRom } else { image::imageops::FilterType::Lanczos3 };
+            let out = image::imageops::resize(&src, n, n, filter);
+            let out = if grow && n >= self.size * 5 / 4 { image::imageops::unsharpen(&out, 0.8, 2) } else { out };
+            out.into_raw()
+        };
+        if let Ok(mut cache) = self.scaled.lock() {
+            if cache.len() >= 4 {
+                cache.remove(0);
+            }
+            cache.push((n, px.clone()));
+        }
+        px
+    }
 }
 
 pub struct ProScreen {
@@ -867,11 +942,14 @@ impl ProScreen {
         if self.cover.as_ref().is_some_and(|c| c.key == key) {
             return;
         }
-        let size = 160u32;
-        let rgb = scale_square(&cover.rgb, cover.width, cover.height, size);
-        let accent = cover_accent(&rgb);
-        let palette = cover_palette(&rgb, accent);
-        self.cover = Some(Cover { key, size, rgb, accent, palette });
+        // keep the whole picture: it is resized once per drawn size in `Cover::at`
+        let size = cover.width.min(cover.height).clamp(1, 640);
+        let rgb = if cover.width == size && cover.height == size {
+            cover.rgb.clone()
+        } else {
+            scale_square(&cover.rgb, cover.width, cover.height, size)
+        };
+        self.cover = Some(Cover::new(key, size, rgb));
     }
 
     /// Paints the screen on `fb`; `area` = the part of `fb` the interface may use.
@@ -901,8 +979,7 @@ impl ProScreen {
                         (u16::from(rgba[2]) * alpha / 255) as u8,
                     ]));
                 }
-                Some(Cover { key: 0, size: 256, rgb: square.into_raw(),
-                    accent: (0, 0, 0), palette: [(0, 0, 0); 3] })
+                Some(Cover::new(0, 256, square.into_raw()))
             })();
             self.logo = (settings.logo.clone(), cover);
         }
@@ -2166,31 +2243,24 @@ fn cover_palette(rgb: &[u8], accent: Rgb) -> [Rgb; 3] {
 
 fn blit_cover(p: &mut Painter, c: &Cover, x: f32, y: f32, size: f32, radius: f32) {
     let n = size.round() as i32;
-    if n <= 0 {
+    if n <= 0 || c.size == 0 {
         return;
     }
     let (xi, yi) = (x.round() as i32, y.round() as i32);
-    let src = c.size as f32;
+    // pixel-exact: the picture is resized to the drawn size once, then copied 1:1
+    let px = c.at(n as u32);
+    let nu = n as usize;
     for py in 0..n {
-        for px in 0..n {
-            let cov = rrect_cov(px as f32 + 0.5, py as f32 + 0.5, 0.0, 0.0, n as f32, n as f32, radius);
+        for pxi in 0..n {
+            let cov = rrect_cov(pxi as f32 + 0.5, py as f32 + 0.5, 0.0, 0.0, n as f32, n as f32, radius);
             if cov <= 0.0 {
                 continue;
             }
-            // bilinear sample
-            let fx = ((px as f32 + 0.5) * src / n as f32 - 0.5).clamp(0.0, src - 1.0);
-            let fy = ((py as f32 + 0.5) * src / n as f32 - 0.5).clamp(0.0, src - 1.0);
-            let (ix, iy) = (fx.floor() as u32, fy.floor() as u32);
-            let (ix1, iy1) = ((ix + 1).min(c.size - 1), (iy + 1).min(c.size - 1));
-            let (tx, ty) = (fx - ix as f32, fy - iy as f32);
-            let at = |xx: u32, yy: u32| -> (f32, f32, f32) {
-                let i = ((yy * c.size + xx) * 3) as usize;
-                (c.rgb[i] as f32, c.rgb[i + 1] as f32, c.rgb[i + 2] as f32)
-            };
-            let (a, b, cc, dd) = (at(ix, iy), at(ix1, iy), at(ix, iy1), at(ix1, iy1));
-            let mix = |a: f32, b: f32, c: f32, d: f32| (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty;
-            let col = (mix(a.0, b.0, cc.0, dd.0) as u8, mix(a.1, b.1, cc.1, dd.1) as u8, mix(a.2, b.2, cc.2, dd.2) as u8);
-            p.layer.over(xi + px, yi + py, col, (255.0 * cov).round() as u8);
+            let i = (py as usize * nu + pxi as usize) * 3;
+            if i + 2 >= px.len() {
+                continue;
+            }
+            p.layer.over(xi + pxi, yi + py, (px[i], px[i + 1], px[i + 2]), (255.0 * cov).round() as u8);
         }
     }
     p.layer.stroke_rrect((xi as f32, yi as f32, n as f32, n as f32), radius, 1.0, WHITE, 26);
@@ -2828,7 +2898,6 @@ mod aperture_tests {
     fn dark_custom_accents_are_legible_and_coordinated() {
         let t=Theme::from_accent((0,0,0));
         assert!(t.cpu[0].0>=120);
-        assert_eq!(t.cpu,t.gpu);
-        assert_eq!(t.gpu,t.ram);
+        assert_ne!(t.cpu[0],t.gpu[0]);
     }
 }

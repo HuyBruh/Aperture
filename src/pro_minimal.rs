@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "dashboard/collection.rs"]
 mod collection;
+#[path = "pro_creative.rs"]
+mod creative;
 
 type Hist<'a> = (&'a VecDeque<f32>, &'a VecDeque<f32>, &'a VecDeque<f32>);
 
@@ -671,7 +673,10 @@ fn clock_tile(p: &mut Painter, r: R, v: &Vm, ink: &Ink, k: f32, hcap: f32) {
     let (x, y, w, _) = r;
     tile(p, r, RAD * k, card_c(ink));
     let lcap = 13.5 * k;
-    date_line(p, x + PD * k, y + PD * k + lcap, v, lcap, ink.muted, k);
+    let date = format!("{}  \u{b7}  {}", v.wd, v.date).to_uppercase();
+    let dw = spaced_width(p, &date, lcap, W::Medium, 1.5 * k);
+    let dcap = if dw > w - 2.0 * PD * k { (lcap * (w - 2.0 * PD * k) / dw).floor() } else { lcap };
+    caps(p, x + PD * k, y + PD * k + lcap, &date, dcap, ink.muted, k);
     let ccap = p.fit(&v.hhmm, hcap, w - 2.0 * PD * k, W::Light);
     p.text(x + PD * k - ccap * 0.05, y + PD * k + lcap + 18.0 * k + hcap, &v.hhmm, ccap, W::Light, ink.text, 255);
 }
@@ -1181,6 +1186,7 @@ fn player(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: H
 
 pub(super) fn paint(layout: Layout, p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hist, cover: Option<&Cover>) -> bool {
     if collection::paint(layout,p,w,h,sc,d,v,hist,cover) { return true; }
+    if creative::paint(layout, p, w, h, sc, d, v, hist, cover) { return true; }
     match layout {
         Layout::Swiss => swiss(p, w, h, sc, d, v, cover),
         Layout::Grid => board(p, w, h, sc, d, v, hist, cover, Skin::Grid),

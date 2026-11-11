@@ -93,6 +93,9 @@ released under the same GPL-3.0-or-later license.
 ## HuyBruh Dash additions
 
 - `src/resources/IntelMSR.bin`: official signed PawnIO module from [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) 0.2.11, LGPL-2.1-or-later, embedded unchanged.
+- `src/resources/LpcIO.bin`: official signed PawnIO module (Super I/O ports) from the same PawnIO.Modules 0.2.11 release, LGPL-2.1-or-later, embedded unchanged (sha256 b3896a1c…eb45e).
+- `src/superio.rs`: the motherboard fan reader follows the chips' datasheets and the Linux `nct6775`, `nct6683` and `it87` drivers; chip IDs, detection order and MSI header names match [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) (MPL-2.0), used as a reference, no code copied.
+- `src/fps_etw.rs`: event IDs and providers as documented by Intel's [PresentMon](https://github.com/GameTechDev/PresentMon) (MIT), used as a reference.
 - `assets/Inter-*-subset.ttf`: subsets of [Inter](https://github.com/rsms/inter), SIL OFL 1.1 (`assets/Inter-OFL.txt`).
 
 

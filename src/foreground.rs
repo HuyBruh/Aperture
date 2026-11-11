@@ -33,48 +33,36 @@ mod imp {
         }
     }
 
+    /// Exe file name (without path, without the ".exe" extension) of process `pid`.
+    /// `None` if the process can't be opened (a protected system process).
+    pub fn exe_name_of(pid: u32) -> Option<String> {
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+            let mut buf = [0u16; 1024];
+            let mut size = buf.len() as u32;
+            let result = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut size);
+            let _ = CloseHandle(process);
+            result.ok()?;
+            let path = String::from_utf16_lossy(&buf[..size as usize]);
+            let file_name = path.rsplit(['\\', '/']).next().unwrap_or(&path);
+            let name = file_name.strip_suffix(".exe").or_else(|| file_name.strip_suffix(".EXE")).unwrap_or(file_name);
+            (!name.trim().is_empty()).then(|| name.to_string())
+        }
+    }
+
+    /// (pid, exe name) of the process that owns the foreground window.
+    pub fn foreground_process() -> Option<(u32, String)> {
+        let pid = foreground_pid()?;
+        Some((pid, exe_name_of(pid)?))
+    }
+
     /// Exe file name (without path, without the ".exe" extension) of the
     /// process that owns the current foreground window. `None` if there's
     /// no foreground window (e.g. locked screen), or the process can't be
     /// opened (system process with protection higher than our access
     /// level).
     pub fn foreground_exe_name() -> Option<String> {
-        unsafe {
-            let hwnd = GetForegroundWindow();
-            if hwnd.0.is_null() {
-                return None;
-            }
-
-            let mut pid: u32 = 0;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
-            if pid == 0 {
-                return None;
-            }
-
-            let process =
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
-
-            let mut buf = [0u16; 1024];
-            let mut size = buf.len() as u32;
-            let result = QueryFullProcessImageNameW(
-                process,
-                PROCESS_NAME_WIN32,
-                windows::core::PWSTR(buf.as_mut_ptr()),
-                &mut size,
-            );
-            let _ = CloseHandle(process);
-            result.ok()?;
-
-            let path = String::from_utf16_lossy(&buf[..size as usize]);
-            let file_name = path.rsplit(['\\', '/']).next().unwrap_or(&path);
-            let name = file_name.strip_suffix(".exe").unwrap_or(file_name);
-
-            if name.trim().is_empty() {
-                None
-            } else {
-                Some(name.to_string())
-            }
-        }
+        foreground_process().map(|p| p.1)
     }
 }
 
@@ -163,4 +151,4 @@ mod imp {
 
 pub use imp::foreground_exe_name;
 #[cfg(windows)]
-pub use imp::foreground_pid;
+pub use imp::foreground_process;

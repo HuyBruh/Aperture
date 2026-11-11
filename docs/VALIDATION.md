@@ -1,5 +1,19 @@
 # Validation — Aperture 4.0
 
+## 4.2.0 — 11 November 2026
+
+Built on Windows (Rust stable, x86_64-pc-windows-gnu, WinLibs GCC) and installed on the
+author's PC (AMD CPU and GPU, MSI MAG B550M MORTAR WIFI). After the
+display service restarted with 4.2.0, its status file reported `lcd=connected`, the board
+chip `NCT6687D` with CPU Fan 2226 RPM and three system fans around 1100 RPM read without
+HWiNFO or LibreHardwareMonitor running, CPU temperature and GPU hotspot from built-in
+sources, FPS capture running and no FPS reported on the desktop (previously the AMD driver
+counter was shown there). The settings app ran on the same PC and showed those live values.
+184 display-program tests pass (new: FPS rate maths, non-game filter, game tracking, fan
+counter maths and CPU-fan choice). The four new layouts were inspected from native renders
+of the Windows build. Not verified here: FPS inside a running game on this PC, ITE and
+Fintek boards, NVIDIA cards.
+
 Local validation on Windows, 29 October 2026. Source baseline: `4979ece4c33f38aed30221093dcde74ce95fe635` from HuyBruh/trofeo-lcd-rs. The local source archive's Rust files matched that baseline before editing.
 
 ## Completed

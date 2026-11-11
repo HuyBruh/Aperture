@@ -78,6 +78,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "aperture"
+version = "4.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "eframe",
+ "flate2",
+ "fontdue",
+ "hidapi",
+ "image",
+ "jpeg-encoder",
+ "libpulse-binding",
+ "libpulse-simple-binding",
+ "openrgb2",
+ "rfd",
+ "rusb",
+ "rustfft",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tokio",
+ "ureq",
+ "wasapi",
+ "windows 0.58.0",
+ "x11rb",
+]
+
+[[package]]
 name = "arboard"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2812,33 +2839,6 @@ checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
 dependencies = [
  "num-integer",
  "strength_reduce",
-]
-
-[[package]]
-name = "aperture"
-version = "4.1.0-beta.3"
-dependencies = [
- "anyhow",
- "chrono",
- "eframe",
- "flate2",
- "fontdue",
- "hidapi",
- "image",
- "jpeg-encoder",
- "libpulse-binding",
- "libpulse-simple-binding",
- "openrgb2",
- "rfd",
- "rusb",
- "rustfft",
- "sysinfo",
- "thiserror 1.0.69",
- "tokio",
- "ureq",
- "wasapi",
- "windows 0.58.0",
- "x11rb",
 ]
 
 [[package]]

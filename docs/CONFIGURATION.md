@@ -14,8 +14,8 @@ flip = false
 
 | Setting | Values |
 | :-- | :-- |
-| `pro_layout` | `axis`, `ledger`, `duet`, `orbit`, `atelier`, `focus`, `grid`; existing legacy names also work |
-| `pro_layout = all` | Rotates the seven-layout Aperture collection |
+| `pro_layout` | `board`, `studio`, `pulse`, `cluster`, `panorama`, `cinema`, `axis`, `ledger`, `duet`, `orbit`, `atelier`, `focus`, `grid`, `stack`, `mosaic`, `mixer`, `chart`, `player`, `tint`, `glass`, `gauge`, `swiss`, `classic`, `cockpit`, `bento`, `terminal`, `chamfer`, `rings`, `dots` |
+| `pro_layout = all` | Rotates the New and Aperture layouts plus Focus and Grid |
 | `pro_layout = portrait` | Rotates the existing five portrait layouts |
 | `pro_theme` | `mineral`, `frost`, `blush`, `sand`, `iris`, `#RRGGBB`; legacy palette names remain compatible |
 | `pro_theme = all` | Rotates the five Aperture palettes |
@@ -23,7 +23,8 @@ flip = false
 | `pro_cover_color` | Whether album art changes accent colors |
 | `pro_song_popup` | Whether a song change briefly overlays a cover/title card |
 | `pro_style` | `cards`, `glass`, `flat`; used by the original Classic/Cockpit/Focus renderers |
-| `pro_fan_sensor` | External CPU fan label; omit for automatic selection |
+| `pro_fan_sensor` | CPU fan: a motherboard header (`NCT6687D / CPU Fan`) or an external sensor label; omit for automatic |
+| `fps_ignore` | Extra programs never measured as the game, comma separated; `none` disables the built-in list [restart] |
 | `weather_city` | Optional fixed city; requires restart |
 
 Use commas to build your own layout or palette rotation. Changing the displayed layout does not change the sensor source.

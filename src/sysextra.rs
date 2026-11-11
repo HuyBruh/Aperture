@@ -38,6 +38,8 @@ pub struct Extra {
     pub disk: Option<DiskInfo>,
     /// Temperatures and fans from HWiNFO or LibreHardwareMonitor, when one of them runs.
     pub ext: Option<(aperture::sensors_ext::Source, aperture::sensors_ext::Snapshot)>,
+    /// Fan headers read straight from the motherboard chip (no other program needed).
+    pub board: Option<crate::superio::Board>,
 }
 
 pub type SharedExtra = Arc<Mutex<Extra>>;
@@ -50,7 +52,17 @@ pub fn spawn_watcher() -> SharedExtra {
     let _ = std::thread::Builder::new().name("sys-extra".into()).spawn(move || {
         let mut n = 0u32;
         let mut wait_ext = 0u32;
+        // the board's chip: opened once; tried again every minute if it is not there yet
+        // (PawnIO installed later, or the bus busy at start)
+        let mut board: Option<crate::superio::Reader> = None;
+        let mut board_retry = 0u32;
         loop {
+            if board.is_none() && board_retry == 0 {
+                board = crate::superio::Reader::open();
+                board_retry = 60;
+            }
+            board_retry = board_retry.saturating_sub(1);
+            let fans = board.as_mut().and_then(|b| b.read());
             let ext = if wait_ext == 0 {
                 let e = aperture::sensors_ext::read_any();
                 if e.is_none() {
@@ -68,6 +80,9 @@ pub fn spawn_watcher() -> SharedExtra {
                 }
                 if let Some(d) = disk {
                     g.disk = d;
+                }
+                if fans.is_some() {
+                    g.board = fans;
                 }
             }
             n = n.wrapping_add(1);

@@ -4,12 +4,36 @@
 
 <p align="center"><a href="#the-collection">The collection</a> Â· <a href="#get-started">Get started</a> Â· <a href="docs/CONFIGURATION.md">Configuration</a> Â· <a href="docs/DEVELOPMENT.md">Build & contribute</a></p>
 
+## New in 4.2
+
+| Layout | Idea |
+| :-- | :-- |
+| **Board** | An airport departure board: every number on split-flap tiles, one row per section. |
+| **Studio** | Paper and ink: a light spec sheet with black numbers, hairlines and one orange accent. |
+| **Pulse** | A live chart of the last two minutes for CPU, GPU and network, the readings under it. |
+| **Cluster** | A car instrument cluster: three dials with a real scale, the album cover on the side. |
+
+![Board](docs/img/aperture/board.png)
+![Studio](docs/img/aperture/studio.png)
+![Pulse](docs/img/aperture/pulse.png)
+![Cluster](docs/img/aperture/cluster.png)
+
+- **CPU fan without other software.** The fan speeds are read straight from the motherboard's Super I/O chip (Nuvoton, ITE, Fintek; MSI boards with their header names) through the PawnIO driver already used for the CPU temperature. HWiNFO or LibreHardwareMonitor are only needed on boards that cannot be read.
+- **Accurate game FPS.** Rewritten the way PresentMon measures: frames are timed from Windows' own present events (DirectX 9-12, plus Vulkan / OpenGL through the graphics kernel), averaged over the last second of the game's frames. Browsers, launchers, Discord and the desktop are never shown as "the game"; the GPU driver's fullscreen counter is no longer used while real measurement works.
+- **Sharp album covers.** The cover keeps its full resolution and is resized once per size with Lanczos / Catmull-Rom, instead of being shrunk to 160 px and stretched back.
+- **A new settings app.** Side navigation, every layout (34) and every palette (12) visible with filters, a live Sensors page (temperatures, fans, FPS and where each comes from), a cleaner Customize page, a restart button that finds the real autostart task.
+
+![Settings: layouts](docs/img/aperture/app-layouts.png)
+![Settings: sensors](docs/img/aperture/app-sensors.png)
+
 ## The collection
 
-Five new compositions built for the panel's unusually wide 1920 Ã— 462 canvas. A shared information model keeps CPU fan, GPU hotspot, VRAM and FPS in dedicated positions. Focus and Grid remain available alongside them.
+Seven compositions built for the panel's 1920 × 462 canvas share one information model, next to Focus, Grid and the Signature set (Stack, Mosaic, Mixer, Chart, Player, Tint, Glass, Gauge, Swiss) and the Classic set (Classic, Cockpit, Bento, Terminal, Chamfer, Rings, Dots). Five portrait layouts are available for a vertically mounted panel.
 
 | Layout | Composition |
 | :-- | :-- |
+| **Panorama** | Three large instruments and a compact context footer. |
+| **Cinema** | Large album artwork and a dense hardware console. |
 | **Axis** | A shallow context bar above three equal hardware instruments. |
 | **Ledger** | Three precise hardware rows with a separate context column. |
 | **Duet** | CPU and GPU across two wide stages; memory has its own rail. |
@@ -17,14 +41,11 @@ Five new compositions built for the panel's unusually wide 1920 Ã— 462 canvas
 | **Atelier** | Album art leads, with a complete hardware desk alongside it. |
 
 ![Axis](docs/img/aperture/axis.png)
-![Ledger](docs/img/aperture/ledger.png)
-![Duet](docs/img/aperture/duet.png)
 ![Orbit](docs/img/aperture/orbit.png)
-![Atelier](docs/img/aperture/atelier.png)
 
 *Images are rendered by the program using sample data, not measurements from a live PC.*
 
-**Five quiet palettes:** Mineral, Frost, Blush, Sand and Iris. Neutral surfaces, readable secondary text and one coordinated accent. Temperature warnings keep their own semantic colors. Pick a custom accent if you prefer; dark accents are lifted for legibility. Existing layout and palette keys still work, with older landscape designs grouped separately in the settings app.
+**Palettes.** Soft: Mineral, Frost, Blush, Sand, Iris, Lagoon (one accent on neutral surfaces). Vivid: NZXT, Graphite, Crimson, Arctic, Ember, Neon (a color per section on black). Or pick your own color: a whole matching palette is built from it.
 
 ## What you can see
 
@@ -53,13 +74,13 @@ The package contains two executables: `aperture.exe` for settings, and `aperture
 | Reading | Source |
 | :-- | :-- |
 | CPU temperature / power | PawnIO on supported AMD/Intel CPUs; external sensor fallback |
-| CPU fan / additional temperatures | LibreHardwareMonitor or HWiNFO |
+| CPU fan / case fans | The motherboard's Super I/O chip through PawnIO; LibreHardwareMonitor or HWiNFO as a fallback |
 | GPU telemetry | GPU interfaces and supported external sensor sources |
-| DirectX FPS | ETW; elevated permissions may be required |
+| Game FPS | ETW present events (DirectX 9-12, Vulkan, OpenGL); the display service runs elevated |
 | Weather | Open-Meteo; a configured city or IP-based location |
 | Now playing | Windows media controls; `playerctl` on Linux |
 
-Open **Sensors & help** to inspect status and select the CPU fan. Availability varies by machine. Weather needs an internet connection.
+Open **Sensors** in the settings app to see live readings, their source, and to pick the CPU fan (or an AIO pump). Availability varies by machine. Weather needs an internet connection.
 
 ### Linux / build from source
 

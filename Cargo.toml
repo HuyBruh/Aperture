@@ -1,6 +1,6 @@
 [package]
 name = "aperture"
-version = "4.1.0-beta.3"
+version = "4.2.0"
 edition = "2021"
 description = "Aperture: a native system display and design collection for Thermalright Trofeo Vision"
 repository = "https://github.com/HuyBruh/Aperture"

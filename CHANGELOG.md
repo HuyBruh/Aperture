@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.2.0
+
+- New layouts: Board (split-flap departure board), Studio (light paper and ink), Pulse (live two-minute charts) and Cluster (car instrument cluster).
+- CPU and case fan speeds read directly from the motherboard (Nuvoton NCT67xx/NCT668x, ITE IT86xx/IT87xx, Fintek F718xx) through PawnIO; MSI boards show their header names. HWiNFO / LibreHardwareMonitor remain an optional fallback.
+- Game FPS rewritten: QPC time stamps of DXGI, D3D9 and graphics-kernel present events, the busiest swap chain of the game, one-second window anchored on the newest frame; non-games are ignored (`fps_ignore` adds more); the AMD driver counter is only a fallback when ETW cannot start.
+- Album covers kept at full resolution and resized once per drawn size with Lanczos / Catmull-Rom.
+- Settings app redesigned: side navigation, every layout and palette visible with filters, live Sensors page, cleaner Customize page (English and Vietnamese), restart finds the real autostart task, encoded elevated commands.
+- Custom colors build a full multi-hue palette again.
+- The status file carries live readings for the settings app and the program version.
+
 ## 4.0.0 — Aperture
 
 - Rebrand the settings app, icon, startup mark and portable launchers to Aperture.

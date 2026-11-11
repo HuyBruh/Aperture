@@ -84,7 +84,7 @@ pub fn decode_cover(bytes: &[u8]) -> Option<CoverArt> {
     let side = w.min(h);
     let sq = image::imageops::crop_imm(&img, (w - side) / 2, (h - side) / 2, side, side).to_image();
     let out = if side > 640 {
-        image::imageops::resize(&sq, 640, 640, image::imageops::FilterType::Triangle)
+        image::imageops::resize(&sq, 640, 640, image::imageops::FilterType::Lanczos3)
     } else {
         sq
     };

@@ -34,6 +34,7 @@ mod effect;
 mod pixel_game;
 mod pro;
 mod sysextra;
+mod superio;
 mod smooth_font;
 mod spectrum;
 mod tiles;
@@ -216,6 +217,8 @@ struct Config {
     brightness: u8,
     /// FPS via ETW (admin), for any GPU.
     fps_monitor: bool,
+    /// Extra programs whose frames are not shown as game FPS (`fps_ignore`).
+    fps_ignore: Vec<String>,
     /// Explicit config file (`--config`), for hot reloading.
     config_explicit: Option<std::path::PathBuf>,
     /// City name for the weather module (`--weather-city` / `weather_city = ...`).
@@ -678,6 +681,7 @@ fn parse_args() -> anyhow::Result<Config> {
         deepcool_enabled = deepcool_enabled && v;
     }
     let fps_monitor = file.get_bool("fps_monitor").map_err(|e| anyhow::anyhow!(e))?.unwrap_or(true);
+    let fps_ignore = fps_etw::parse_ignore(file.get("fps_ignore").unwrap_or(""));
     let ui = parse_ui_options(&file)?;
     let bg_layout = parse_bg_layout(&file)?;
     let orientation = match orientation_cli {
@@ -754,6 +758,7 @@ fn parse_args() -> anyhow::Result<Config> {
         ffmpeg,
         brightness: brightness as u8,
         fps_monitor,
+        fps_ignore,
         bg_layout,
         ui,
         preview: preview_path
@@ -1513,28 +1518,50 @@ fn report_config_error(msg: &str) {
 }
 
 /// `trofeo-status.txt` next to the program: what the display process found (display,
-/// sensor sources), read by Trofeo Studio to explain problems. Rewritten only on change.
-fn set_status(key: &str, value: &str) {
+/// sensor sources) and its live readings, read by the settings app to explain problems.
+///
+/// `set_status` = a state (written at once when it changes); `set_live` = a reading that
+/// changes all the time (written with the next refresh, at most every 2 s).
+fn status_put(key: &str, value: &str, live: bool) {
     use std::collections::BTreeMap;
     use std::sync::Mutex;
-    static STATUS: Mutex<Option<(BTreeMap<String, String>, std::time::Instant)>> = Mutex::new(None);
+    struct St {
+        map: BTreeMap<String, String>,
+        written: std::time::Instant,
+        dirty: bool,
+    }
+    static STATUS: Mutex<Option<St>> = Mutex::new(None);
     let Ok(mut g) = STATUS.lock() else { return };
-    let (map, last) = g.get_or_insert_with(|| (BTreeMap::new(), std::time::Instant::now() - Duration::from_secs(60)));
-    let changed = map.get(key).map(|v| v.as_str()) != Some(value);
-    map.insert(key.to_string(), value.to_string());
-    // also refresh the time stamp every 10 s so Studio knows the program is alive
-    if !changed && last.elapsed() < Duration::from_secs(10) {
+    let st = g.get_or_insert_with(|| St { map: BTreeMap::new(), written: std::time::Instant::now() - Duration::from_secs(60), dirty: false });
+    let changed = st.map.get(key).map(|v| v.as_str()) != Some(value);
+    if changed {
+        st.map.insert(key.to_string(), value.to_string());
+        st.dirty = true;
+    }
+    let age = st.written.elapsed();
+    // a changed state: now; changed readings: every 2 s; nothing new: a heartbeat every 10 s
+    let write = (changed && !live) || (st.dirty && age >= Duration::from_secs(2)) || age >= Duration::from_secs(10);
+    if !write {
         return;
     }
-    *last = std::time::Instant::now();
+    st.written = std::time::Instant::now();
+    st.dirty = false;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let mut text = format!("updated={now}\r\n");
-    for (k, v) in map.iter() {
+    let mut text = format!("updated={now}\r\nversion={}\r\n", env!("CARGO_PKG_VERSION"));
+    for (k, v) in st.map.iter() {
         text.push_str(&format!("{k}={v}\r\n"));
     }
     if let Some(p) = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("trofeo-status.txt"))) {
         let _ = std::fs::write(p, text);
     }
+}
+
+fn set_status(key: &str, value: &str) {
+    status_put(key, value, false);
+}
+
+fn set_live(key: &str, value: &str) {
+    status_put(key, value, true);
 }
 
 /// Config file signature, used to detect changes.
@@ -2047,14 +2074,29 @@ fn main() -> anyhow::Result<()> {
             }
             #[cfg(windows)]
             {
-                let process_fps = if config.fps_monitor {
-                    fps_target.sample(foreground::foreground_pid(), fps_etw::fps_for_pid)
+                // The game's own frames (ETW). The driver's number is only a stand-in for
+                // when ETW could not start: it is tied to one adapter / fullscreen path and
+                // keeps reporting on the desktop.
+                let etw_running = fps_etw::status() == fps_etw::Status::Running;
+                let measured = if config.fps_monitor && etw_running {
+                    fps_target.sample(foreground::foreground_process(), &config.fps_ignore, fps_etw::fps_for_pid)
+                        .map(|(s, name)| (s, name.to_string()))
                 } else {
                     None
                 };
-                latest_gpu_data.fps = fps_etw::prefer_process_fps(process_fps, latest_gpu_data.fps);
-                set_status("fps_source", if process_fps.is_some() { "process_etw" }
-                    else if latest_gpu_data.fps.is_some() { "amd_driver" } else { "unavailable" });
+                let driver_fps = latest_gpu_data.fps.filter(|f| *f > 0);
+                latest_gpu_data.fps = match &measured {
+                    Some((s, _)) => Some(s.fps.round() as i32),
+                    None if !etw_running && config.fps_monitor => driver_fps,
+                    None => None,
+                };
+                set_status("fps_source", match &measured {
+                    Some((s, _)) => s.api.name(),
+                    None if latest_gpu_data.fps.is_some() => "GPU driver",
+                    None => "none",
+                });
+                set_status("fps_process", measured.as_ref().map(|m| m.1.as_str()).unwrap_or(""));
+                set_live("fps", &latest_gpu_data.fps.map(|f| f.to_string()).unwrap_or_default());
                 set_status("fps_capture", match fps_etw::status() {
                     fps_etw::Status::Running => "running",
                     fps_etw::Status::NeedsAdmin => "needs_admin",
@@ -2153,7 +2195,17 @@ fn main() -> anyhow::Result<()> {
             let extra = pro_extra.lock().map(|g| g.clone()).unwrap_or_default();
             let ext = extra.ext.as_ref().map(|(_, s)| s);
             let fan_pick = opts().pro.fan_sensor.clone();
-            let ext_fan = ext.and_then(|s| s.cpu_fan(Some(fan_pick.as_str()).filter(|f| !f.is_empty())));
+            // CPU fan: the fan the user picked (board header or HWiNFO / LHM sensor), else
+            // HWiNFO / LHM (they know the header names of each board model), else the board.
+            let board = extra.board.as_ref();
+            let picked = (!fan_pick.is_empty()).then(|| {
+                board.and_then(|b| b.selected(&fan_pick)).map(|r| (r, "board"))
+                    .or_else(|| ext.and_then(|s| s.cpu_fan(Some(fan_pick.as_str()))).map(|r| (r, "ext")))
+            }).flatten();
+            let fan_reading = picked
+                .or_else(|| ext.and_then(|s| s.cpu_fan(None)).map(|r| (r, "ext")))
+                .or_else(|| board.and_then(|b| b.cpu_fan()).map(|r| (r, "board")));
+            let ext_fan = fan_reading.map(|r| r.0);
             let mut gpu_full = latest_gpu_data.clone();
             let gpu_fan_pick = opts().pro.gpu_fan_sensor;
             if gpu_full.fan_rpm.is_none() || !gpu_fan_pick.is_empty() {
@@ -2178,13 +2230,29 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
                 set_status("cpu_temp", src(latest_cpu_temp.is_some(), ext.and_then(|s| s.cpu_temp()).is_some()));
-                set_status("cpu_fan", src(false, ext_fan.is_some()));
+                set_status("cpu_fan", match fan_reading.map(|r| r.1) {
+                    Some("board") => "board",
+                    Some(_) => src(false, true),
+                    None => "none",
+                });
+                set_status("board_chip", board.map(|b| b.chip.as_str()).unwrap_or(""));
+                // every header, for the fan picker of the settings app: "Fan 1:900|Fan 2:1250"
+                set_live("board_fans", &board.map(|b| b.fans.iter().map(|f| format!("{}:{}", b.selector(f), f.rpm)).collect::<Vec<_>>().join("|")).unwrap_or_default());
                 set_status("gpu_hotspot", src(latest_gpu_data.temp_hotspot_c.is_some(), gpu_full.temp_hotspot_c.is_some()));
                 set_status("ext", match extra.ext.as_ref().map(|(s, _)| *s) {
                     Some(aperture::sensors_ext::Source::Hwinfo) => "hwinfo",
                     Some(aperture::sensors_ext::Source::Lhm) => "lhm",
                     None => "none",
                 });
+            }
+            {
+                // live readings for the Sensors page of the settings app (written every 2 s)
+                let o = |v: Option<i32>| v.map(|x| x.to_string()).unwrap_or_default();
+                set_live("cpu_temp_c", &o(latest_cpu_temp.or_else(|| ext.and_then(|s| s.cpu_temp())).map(|t| t.round() as i32)));
+                set_live("cpu_fan_rpm", &o(ext_fan.map(|r| r as i32)));
+                set_live("gpu_temp_c", &o(gpu_full.temp_edge_c));
+                set_live("gpu_hotspot_c", &o(gpu_full.temp_hotspot_c));
+                set_live("gpu_fan_rpm", &o(gpu_full.fan_rpm));
             }
             let data = pro::Data {
                 cpu_name: &pro_cpu_name,
