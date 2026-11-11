@@ -5,7 +5,7 @@
 //! hero + six readings of CPU, GPU and memory).
 use super::*;
 
-const LC: f32 = 13.5; // small-capitals label
+
 
 // =================================================================== BOARD
 //
@@ -464,8 +464,8 @@ fn pulse(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hi
         sec_head(p, ix, head, iw, s, lcap, &ink, k);
         let hc = 70.0 * k;
         let hb = head + 16.0 * k + hc;
-        let cap = hero_fit(p, &s.hero, s.hero_unit, hc, iw * 0.55);
-        hero(p, ix, hb, &s.hero, s.hero_unit, cap, hero_c(s.hero_color, &ink), ink.muted);
+        let cap = hero_fit(p, &s.hero, s.hero_unit, hc, iw * 0.42);
+        let hw = hero(p, ix, hb, &s.hero, s.hero_unit, cap, hero_c(s.hero_color, &ink), ink.muted);
         // what the chart shows, with its current value, right of the hero
         let (series, max, what, now): (&VecDeque<f32>, f32, &str, String) = match si {
             0 => (hist.0, 100.0, "Load \u{b7} 2 min", vu_s(&s.cells[0])),
@@ -475,10 +475,9 @@ fn pulse(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hi
                 if dn >= 1024.0 { format!("{:.1} MB/s", dn / 1024.0) } else { format!("{dn:.0} KB/s") }
             }),
         };
-        let nb = hb - 30.0 * k;
-        text_r(p, ix + iw, nb, &now, 30.0 * k, W::Regular, s.colors[0]);
-        let what_w = spaced_width(p, &what.to_uppercase(), 12.0 * k, W::Medium, 1.5 * k);
-        caps(p, ix + iw - what_w, hb, what, 12.0 * k, ink.dim, k);
+        // the chart's current value on the hero line, what it shows inside the chart
+        let now_w = text_r(p, ix + iw, hb, &now, 30.0 * k, W::Regular, s.colors[0]);
+        let chart_label = what;
         // readings: two rows of three at the bottom
         let vcap = 32.0 * k;
         let ch = kv_h(12.5 * k, vcap, k);
@@ -489,9 +488,19 @@ fn pulse(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hi
             let cy = rows_top + (ci / 3) as f32 * (ch + 18.0 * k);
             kv(p, cx, cy, cw - 14.0 * k, c, 12.5 * k, vcap, &ink, k);
         }
-        let cy0 = hb + 20.0 * k;
+        // cores / hotspot / total memory between the hero and the chart value
+        if !s.side.is_empty() {
+            let room = iw - hw - now_w - 14.0 * k - 24.0 * k;
+            if room > 50.0 * k {
+                let short = s.side.trim_start_matches("of ").to_string();
+                let side = if p.width(&s.side, 17.0 * k, W::Regular) <= room { s.side.clone() } else { ellipsize(p, &short, 17.0 * k, W::Regular, room) };
+                p.text(ix + hw + 14.0 * k, hb, &side, 17.0 * k, W::Regular, if si == 1 { ink.text } else { ink.muted }, 255);
+            }
+        }
+        let cy0 = hb + 22.0 * k;
         let chh = rows_top - 20.0 * k - cy0;
-        area_chart(p, (ix, cy0, iw, chh), series, max, s.colors, &ink, k);
+        area_chart(p, (ix, cy0 + 20.0 * k, iw, chh - 20.0 * k), series, max, s.colors, &ink, k);
+        caps(p, ix, cy0 + 12.0 * k, chart_label, 12.0 * k, ink.dim, k);
     }
 }
 
@@ -613,15 +622,21 @@ fn cluster(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: 
         let r = if big { rb } else { rs };
         let dx = centers[pos];
         let pct = s.hero_unit == "%";
-        let scale = if pct { ["", "25", "50", "75", ""] } else { ["", "40", "60", "80", ""] };
+        let scale = if pct { ["", "", "50", "", ""] } else { ["", "", "60", "", ""] };
         let frac = if pct { s.hero_frac } else { s.hero.parse::<f32>().ok().map(|t| ((t - 20.0) / 80.0).clamp(0.0, 1.0)) };
         dial(p, dx, cy, r, frac, s.colors, scale, &ink, k);
-        // name
+        // name, then cores / hotspot / total memory on the same line
         let nc = 14.0 * k;
         let ny = cy - r * 0.40;
         let nw = spaced_width(p, &s.name.to_uppercase(), nc, W::Medium, 1.5 * k);
-        circle(p, dx - nw / 2.0 - 10.0 * k, ny - nc * 0.5, 4.0 * k, s.colors[0], 255);
-        caps(p, dx - nw / 2.0 + 2.0 * k, ny, s.name, nc, ink.muted, k);
+        let side = if s.side.is_empty() { String::new() } else { ellipsize(p, &s.side, 15.0 * k, W::Regular, r * 0.75) };
+        let sw = if side.is_empty() { 0.0 } else { p.width(&side, 15.0 * k, W::Regular) + 12.0 * k };
+        let nx = dx - (nw + sw) / 2.0 + 6.0 * k;
+        circle(p, nx - 12.0 * k, ny - nc * 0.5, 4.0 * k, s.colors[0], 255);
+        let nw = caps(p, nx, ny, s.name, nc, ink.muted, k);
+        if !side.is_empty() {
+            p.text(nx + nw + 12.0 * k, ny, &side, 15.0 * k, W::Regular, if si == 1 { ink.text } else { ink.muted }, 255);
+        }
         // hero
         let hc = if big { 96.0 } else { 80.0 } * k;
         let cap = hero_fit(p, &s.hero, s.hero_unit, hc, r * 1.2);

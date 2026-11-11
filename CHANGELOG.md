@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.2.1
+
+- The seven Aperture layouts redrawn on the Grid kit: equal 12 px gaps and equal columns, room between every value and the next label, heroes sized to the panel, hotspot and core count always shown.
+- One weather block for every layout: one line when it fits, the next days as a list in tall panels, no overlapping text.
+- One music block: the text always starts at the cover's own edge; large covers carry the title on a soft shade inside the cover.
+- Pulse and Cluster show the GPU hotspot (and the core count / total memory).
+- Chart's table reads label and value on one line; Dots' weather no longer overlaps.
+
 ## 4.2.0
 
 - New layouts: Board (split-flap departure board), Studio (light paper and ink), Pulse (live two-minute charts) and Cluster (car instrument cluster).

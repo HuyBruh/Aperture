@@ -1227,18 +1227,21 @@ fn dots(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cover: Op
     let cw_ = dot_text(p, x, m + 4.0 * k, &hhmm, uc, WHITE, 14);
     let _ = cw_;
     spaced(p, x, m + 7.0 * uc + 34.0 * k, &format!("{}  \u{b7}  {}", v.wd, v.date.to_uppercase()), sc.s, W::Medium, th().muted, 1.8 * k);
-    let mut y = m + 7.0 * uc + 62.0 * k;
-    if let Some(wx) = &v.wx {
-        weather_icon(p, x - 3.0 * k, y - 8.0 * k, 46.0 * k, wx.icon, wx.night);
-        let tw = dot_text(p, x + 52.0 * k, y + 2.0 * k, wx.temp.trim_end_matches('\u{b0}'), 4.8 * k, WHITE, 12);
-        p.text(x + 58.0 * k + tw, y + 14.0 * k, "\u{b0}", sc.l * 0.7, W::Regular, th().muted, 255);
-        let line = if wx.city.is_empty() { wx.cond.clone() } else { format!("{} \u{b7} {}", wx.cond, wx.city) };
-        p.text(x, y + 52.0 * k, &ellipsize(p, &line, sc.m * 0.95, W::Regular, right_w), sc.m * 0.95, W::Regular, th().muted, 255);
-        let days: Vec<String> = wx.days.iter().map(|f| format!("{} {} {}", f.name, f.hi, f.lo)).collect();
-        p.text(x, y + 78.0 * k, &ellipsize(p, &days.join("   "), sc.s, W::Regular, right_w), sc.s, W::Regular, th().dim, 255);
-        y += 100.0 * k;
-    }
     let my = h - m - 112.0 * k;
+    let mut y = m + 7.0 * uc + 52.0 * k;
+    if let Some(wx) = &v.wx {
+        // the weather block (temperature, sky, three days) centred in the free space
+        let block = 96.0 * k;
+        y += ((my - 10.0 * k - y - block) / 2.0).max(0.0);
+        weather_icon(p, x - 3.0 * k, y - 6.0 * k, 42.0 * k, wx.icon, wx.night);
+        let tw = dot_text(p, x + 50.0 * k, y + 2.0 * k, wx.temp.trim_end_matches('\u{b0}'), 4.2 * k, WHITE, 12);
+        p.text(x + 56.0 * k + tw, y + 12.0 * k, "\u{b0}", sc.l * 0.6, W::Regular, th().muted, 255);
+        let line = if wx.city.is_empty() { wx.cond.clone() } else { format!("{} \u{b7} {}", wx.cond, wx.city) };
+        p.text(x, y + 60.0 * k, &ellipsize(p, &line, sc.m * 0.95, W::Regular, right_w), sc.m * 0.95, W::Regular, th().muted, 255);
+        let days: Vec<String> = wx.days.iter().map(|f| format!("{} {} {}", f.name, f.hi, f.lo)).collect();
+        p.text(x, y + 88.0 * k, &ellipsize(p, &days.join("   "), sc.s, W::Regular, right_w), sc.s, W::Regular, th().dim, 255);
+        y += block;
+    }
     sep(p, x, my - 10.0 * k, x + right_w, my - 10.0 * k);
     let big = Scale { m: sc.m * 1.2, s: sc.s * 1.12, ..*sc };
     now_playing_compact(p, (x, my, right_w, 112.0 * k), &big, d, cover, true);

@@ -421,7 +421,8 @@ fn sec_top(p: &mut Painter, x: f32, head: f32, w: f32, s: &Sec, hcap: f32, ink: 
     let tw = (w * 0.38).floor();
     let tx = x + w - tw;
     match s.hist {
-        Some((hs, max)) => trend(p, (tx, head + 30.0 * k, tw, (hcap * 0.4).max(30.0 * k)), hs, max, s.colors, k),
+        // the trend never reaches down to the side note under it
+        Some((hs, max)) => trend(p, (tx, head + 30.0 * k, tw, (hcap * 0.4).max(30.0 * k).min(hb - 24.0 * k - head - 30.0 * k)), hs, max, s.colors, k),
         None => bar(p, tx, head + 30.0 * k + hcap * 0.2, tw, 6.0 * k, s.hero_frac, s.colors, track),
     }
     if !s.side.is_empty() {
@@ -584,18 +585,7 @@ fn board(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hi
     let w_h = ih - t_h - m_h - 2.0 * g;
     let sky = if night { (40, 52, 120) } else { (56, 140, 230) };
     surface(p, (x, wy, left_w, w_h), rad, skin, &ink, Some(sky));
-    if let Some(wx) = &v.wx {
-        let s = 46.0 * k;
-        let base = wy + pd + 34.0 * k;
-        weather_icon(p, x + pd - 4.0 * k, base - 17.0 * k - s / 2.0, s, wx.icon, wx.night);
-        let tw = p.text(x + pd + s + 6.0 * k, base, &wx.temp, 34.0 * k, W::Regular, ink.text, 255);
-        let cx = x + pd + s + 6.0 * k + tw + 16.0 * k;
-        let c1 = ellipsize(p, &wx.cond, 15.0 * k, W::Medium, x + left_w - pd - cx);
-        p.text(cx, base - 18.0 * k, &c1, 15.0 * k, W::Medium, ink.text, 255);
-        let c2 = ellipsize(p, &wx.city, 13.5 * k, W::Regular, x + left_w - pd - cx);
-        p.text(cx, base, &c2, 13.5 * k, W::Regular, ink.muted, 255);
-    }
-    wx_days(p, x + pd, wy + w_h - pd - kv_h(12.5 * k, 26.0 * k, k), left_w - 2.0 * pd, v, 12.5 * k, 26.0 * k, &ink, k);
+    weather_in(p, (x, wy, left_w, w_h), v, &ink, k);
     let my = wy + w_h + g;
     surface(p, (x, my, left_w, m_h), rad, skin, &ink, Some(cover.map_or(th().ram[0], |c| c.accent)));
     music(p, d, cover, (x + 16.0 * k, my + 16.0 * k, left_w - 32.0 * k, m_h - 32.0 * k), 17.0 * k, &ink, k, false);
@@ -659,6 +649,7 @@ const M: f32 = 12.0; // outer margin
 const G: f32 = 12.0; // gap between tiles
 const PD: f32 = 22.0; // padding inside a tile
 const RAD: f32 = 22.0;
+const LC: f32 = 13.5; // small-capitals label
 
 fn card_c(ink: &Ink) -> Rgb {
     lerp_rgb(ink.bg, WHITE, 0.07)
@@ -681,31 +672,202 @@ fn clock_tile(p: &mut Painter, r: R, v: &Vm, ink: &Ink, k: f32, hcap: f32) {
     p.text(x + PD * k - ccap * 0.05, y + PD * k + lcap + 18.0 * k + hcap, &v.hhmm, ccap, W::Light, ink.text, 255);
 }
 
-/// Weather now on top, the next three days at the bottom.
+/// Weather in a tile of any shape.
 fn weather_tile(p: &mut Painter, r: R, v: &Vm, ink: &Ink, k: f32) {
-    let (x, y, w, h) = r;
     tile(p, r, RAD * k, card_c(ink));
-    let pd = PD * k;
-    if let Some(wx) = &v.wx {
-        let s = 46.0 * k;
-        let base = y + pd + 34.0 * k;
-        weather_icon(p, x + pd - 4.0 * k, base - 17.0 * k - s / 2.0, s, wx.icon, wx.night);
-        let tw = p.text(x + pd + s + 6.0 * k, base, &wx.temp, 34.0 * k, W::Regular, ink.text, 255);
-        let cx = x + pd + s + 6.0 * k + tw + 16.0 * k;
-        let c1 = ellipsize(p, &wx.cond, 15.0 * k, W::Medium, x + w - pd - cx);
-        p.text(cx, base - 18.0 * k, &c1, 15.0 * k, W::Medium, ink.text, 255);
-        let c2 = ellipsize(p, &wx.city, 13.5 * k, W::Regular, x + w - pd - cx);
-        p.text(cx, base, &c2, 13.5 * k, W::Regular, ink.muted, 255);
-    } else {
-        p.text(x + pd, y + pd + 30.0 * k, "Weather unavailable", 15.0 * k, W::Regular, ink.dim, 255);
+    weather_in(p, r, v, ink, k);
+}
+
+/// Weather inside a panel `r` (the background is the caller's):
+/// wide panels put the next three days next to the sky, tall ones list them as rows,
+/// the others show the sky on top and the days at the bottom.
+fn weather_in(p: &mut Painter, r: R, v: &Vm, ink: &Ink, k: f32) {
+    let (x, y, w, h) = r;
+    let pd = (PD * k).min(h * 0.24);
+    let Some(wx) = &v.wx else {
+        p.text(x + pd, y + h / 2.0 + 7.0 * k, "Weather unavailable", 16.0 * k, W::Regular, ink.dim, 255);
+        return;
+    };
+    let mid = y + h / 2.0;
+    if w >= 2.6 * h && w >= 560.0 * k {
+        // ---- wide: [icon temp cond/city] ............ [day day day]
+        let ih = h - 2.0 * pd;
+        let s = ih.min(56.0 * k);
+        let tcap = (ih * 0.6).min(44.0 * k);
+        weather_icon(p, x + pd - 4.0 * k, mid - s / 2.0, s, wx.icon, wx.night);
+        let tx = x + pd + s + 8.0 * k;
+        let tw = p.text(tx, mid + tcap / 2.0, &wx.temp, tcap, W::Regular, ink.text, 255);
+        let dw = (w * 0.15).clamp(92.0 * k, 136.0 * k);
+        let days_x = x + w - pd - 3.0 * dw;
+        let cx = tx + tw + 18.0 * k;
+        let room = days_x - 24.0 * k - cx;
+        let (c1, c2) = (16.0 * k, 14.0 * k);
+        let top = mid - (c1 + 8.0 * k + c2) / 2.0;
+        let c1f = p.fit(&wx.cond, c1, room, W::Medium).max(13.0 * k);
+        let cond = ellipsize(p, &wx.cond, c1f, W::Medium, room);
+        p.text(cx, top + c1, &cond, c1f, W::Medium, ink.text, 255);
+        let city = ellipsize(p, &wx.city, c2, W::Regular, room);
+        p.text(cx, top + c1 + 8.0 * k + c2, &city, c2, W::Regular, ink.muted, 255);
+        let lcap = 12.5 * k;
+        let vcap = (ih - lcap - 9.0 * k).clamp(18.0 * k, 28.0 * k);
+        wx_days(p, days_x, mid - kv_h(lcap, vcap, k) / 2.0, 3.0 * dw, v, lcap, vcap, ink, k);
+        return;
     }
-    wx_days(p, x + pd, y + h - pd - kv_h(12.5 * k, 26.0 * k, k), w - 2.0 * pd, v, 12.5 * k, 26.0 * k, ink, k);
+    // ---- the sky now: icon, temperature, condition and city
+    let tall = h >= 230.0 * k;
+    let s = if tall { 60.0 } else if h >= 180.0 * k { 52.0 } else { 46.0 } * k;
+    let tcap = if tall { 52.0 } else if h >= 180.0 * k { 44.0 } else { 34.0 } * k;
+    let base = y + pd + s / 2.0 + tcap / 2.0;
+    weather_icon(p, x + pd - 4.0 * k, base - tcap / 2.0 - s / 2.0, s, wx.icon, wx.night);
+    let tx = x + pd + s + 8.0 * k;
+    let tw = p.text(tx, base, &wx.temp, tcap, W::Regular, ink.text, 255);
+    let (c1, c2) = (15.0 * k, 13.5 * k);
+    if tall {
+        // condition and city under the row: the column is narrow
+        let b1 = base + 30.0 * k + c1;
+        let cond = ellipsize(p, &wx.cond, 17.0 * k, W::Medium, w - 2.0 * pd);
+        p.text(x + pd, b1, &cond, 17.0 * k, W::Medium, ink.text, 255);
+        let city = ellipsize(p, &wx.city, 14.0 * k, W::Regular, w - 2.0 * pd);
+        p.text(x + pd, b1 + 24.0 * k, &city, 14.0 * k, W::Regular, ink.muted, 255);
+        // the next days as rows
+        let list_top = b1 + 24.0 * k + 26.0 * k;
+        let rows = wx.days.iter().take(3).count().max(1);
+        let rh = ((y + h - pd - list_top) / rows as f32).floor();
+        for (i, f) in wx.days.iter().take(3).enumerate() {
+            let ry = list_top + i as f32 * rh;
+            rect(p, (x + pd, ry.round(), w - 2.0 * pd, 1.0), WHITE, 22);
+            let rb = ry + rh / 2.0 + 9.0 * k;
+            caps(p, x + pd, rb - 4.0 * k, &f.name, 13.5 * k, ink.muted, k);
+            let isz = 34.0 * k;
+            weather_icon(p, x + pd + 74.0 * k, ry + rh / 2.0 - isz / 2.0, isz, f.icon, false);
+            let lw = text_r(p, x + w - pd, rb, &f.lo, 19.0 * k, W::Regular, ink.muted);
+            text_r(p, x + w - pd - lw - 14.0 * k, rb, &f.hi, 28.0 * k, W::Regular, ink.text);
+        }
+        return;
+    }
+    if h >= 180.0 * k {
+        // room enough: the condition and city on their own line under the temperature
+        let b1 = base + 30.0 * k;
+        let line = format!("{} \u{b7} {}", wx.cond, wx.city);
+        let line = ellipsize(p, &line, 15.0 * k, W::Regular, w - 2.0 * pd);
+        p.text(x + pd, b1, &line, 15.0 * k, W::Regular, ink.muted, 255);
+        let vcap = 30.0 * k;
+        wx_days(p, x + pd, y + h - pd - kv_h(12.5 * k, vcap, k), w - 2.0 * pd, v, 12.5 * k, vcap, ink, k);
+        return;
+    }
+    let cx = tx + tw + 16.0 * k;
+    let room = x + w - pd - cx;
+    let cw = p.width(&wx.cond, c1, W::Medium);
+    if cw + p.width(&format!("  \u{b7}  {}", wx.city), c1, W::Regular) <= room {
+        // one line, centred on the temperature
+        let b = base - tcap / 2.0 + c1 / 2.0;
+        let w1 = p.text(cx, b, &wx.cond, c1, W::Medium, ink.text, 255);
+        p.text(cx + w1, b, &format!("  \u{b7}  {}", wx.city), c1, W::Regular, ink.muted, 255);
+    } else {
+        let top = base - tcap / 2.0 - (c1 + 7.0 * k + c2) / 2.0;
+        let cond = ellipsize(p, &wx.cond, c1, W::Medium, room);
+        p.text(cx, top + c1, &cond, c1, W::Medium, ink.text, 255);
+        let city = ellipsize(p, &wx.city, c2, W::Regular, room);
+        p.text(cx, top + c1 + 7.0 * k + c2, &city, c2, W::Regular, ink.muted, 255);
+    }
+    let vcap = if h >= 180.0 * k { 30.0 } else { 26.0 } * k;
+    wx_days(p, x + pd, y + h - pd - kv_h(12.5 * k, vcap, k), w - 2.0 * pd, v, 12.5 * k, vcap, ink, k);
 }
 
 fn music_tile(p: &mut Painter, r: R, d: &Data, cover: Option<&Cover>, ink: &Ink, k: f32) {
-    let (x, y, w, h) = r;
     tile(p, r, RAD * k, card_c(ink));
-    music(p, d, cover, (x + 16.0 * k, y + 16.0 * k, w - 32.0 * k, h - 32.0 * k), 17.0 * k, ink, k, false);
+    music_in(p, r, d, cover, ink, k);
+}
+
+/// The song in a panel of any shape; the text always starts at the cover's own edge.
+fn music_in(p: &mut Painter, r: R, d: &Data, cover: Option<&Cover>, ink: &Ink, k: f32) {
+    let (x, y, w, h) = r;
+    if h <= 140.0 * k {
+        let pd = 16.0 * k;
+        music(p, d, cover, (x + pd, y + pd, w - 2.0 * pd, h - 2.0 * pd), 17.0 * k, ink, k, false);
+        return;
+    }
+    let pd = 18.0 * k;
+    let rad = 14.0 * k;
+    let accent = cover.map_or(th().cpu[0], |c| c.accent);
+    let ph = ((40, 42, 52), (24, 25, 32));
+    let draw_cover = |p: &mut Painter, cx: f32, cy: f32, cs: f32| match (cover, d.track) {
+        (Some(c), Some(_)) => blit_cover(p, c, cx, cy, cs, rad),
+        _ => {
+            p.layer.fill_rrect((cx, cy, cs, cs), rad, &move |t| lerp_rgb(ph.0, ph.1, t), 255);
+            music_note(p, cx + cs / 2.0, cy + cs / 2.0, cs * 0.28, ink.dim);
+        }
+    };
+    let (title, artist) = track_lines(d).unwrap_or_else(|| ("Nothing playing".into(), String::new()));
+    let tc = if d.track.is_some() { ink.text } else { ink.dim };
+    if w >= 380.0 * k && h >= 380.0 * k {
+        // ---- a large square cover, the text on a soft shade over its bottom
+        let cs = (w.min(h) - 2.0 * pd).floor();
+        let cx = x + ((w - cs) / 2.0).round();
+        let cy = y + ((h - cs) / 2.0).round();
+        draw_cover(p, cx, cy, cs);
+        let sh = 128.0 * k;
+        let sy = cy + cs - sh;
+        for i in 0..(sh as i32) {
+            let t = i as f32 / sh;
+            let dy = cs - (sy - cy) - i as f32; // distance to the bottom edge
+            let inset = if dy < rad { rad - (rad * rad - (rad - dy) * (rad - dy)).max(0.0).sqrt() } else { 0.0 };
+            rect(p, (cx + inset, sy + i as f32, cs - 2.0 * inset, 1.0), (0, 0, 0), (t.powf(1.3) * 205.0) as u8);
+        }
+        let ip = 20.0 * k;
+        let tw = cs - 2.0 * ip;
+        let bar_y = cy + cs - ip - 4.0 * k;
+        let ab = bar_y - 14.0 * k;
+        let tb = ab - 26.0 * k;
+        title_line(p, cx + ip, tb, tw, &title, 22.0 * k, W::Medium, WHITE);
+        let mut aw = tw;
+        if let Some((el, tot, f)) = track_times(d) {
+            let s = format!("{el} / {tot}");
+            aw -= text_r(p, cx + ip + tw, ab, &s, 14.5 * k, W::Regular, (220, 222, 228)) + 14.0 * k;
+            bar(p, cx + ip, bar_y, tw, 4.0 * k, Some(f), [accent, lerp_rgb(accent, WHITE, 0.4)], (WHITE, 50));
+        }
+        let a = ellipsize(p, &artist, 15.0 * k, W::Regular, aw.max(10.0));
+        p.text(cx + ip, ab, &a, 15.0 * k, W::Regular, (214, 216, 224), 255);
+        return;
+    }
+    let text_h = 78.0 * k;
+    let cs = (w - 2.0 * pd).min(h - 2.0 * pd - text_h).floor();
+    let side = w - 2.0 * pd - cs >= 170.0 * k;
+    let bar_y = y + h - pd - 4.0 * k;
+    let times = track_times(d);
+    if side {
+        // ---- cover top-left, title and artist beside it, the progress across the bottom
+        let cs = (h - 2.0 * pd - 34.0 * k).min(w * 0.5).floor();
+        draw_cover(p, x + pd, y + pd, cs);
+        let tx = x + pd + cs + 16.0 * k;
+        let tw = x + w - pd - tx;
+        let lines = wrap2(p, &title, 18.0 * k, W::Medium, tw);
+        for (i, l) in lines.iter().enumerate() {
+            p.text(tx, y + pd + 18.0 * k + i as f32 * 25.0 * k, l, 18.0 * k, W::Medium, tc, 255);
+        }
+        let a = ellipsize(p, &artist, 14.5 * k, W::Regular, tw);
+        p.text(tx, y + pd + 18.0 * k + lines.len() as f32 * 25.0 * k + 2.0 * k, &a, 14.5 * k, W::Regular, ink.muted, 255);
+        if let Some((el, tot, f)) = times {
+            bar(p, x + pd, bar_y, w - 2.0 * pd, 4.0 * k, Some(f), [accent, lerp_rgb(accent, WHITE, 0.4)], (WHITE, 26));
+            p.text(x + pd, bar_y - 10.0 * k, &el, 14.0 * k, W::Regular, ink.muted, 255);
+            text_r(p, x + w - pd, bar_y - 10.0 * k, &tot, 14.0 * k, W::Regular, ink.muted);
+        }
+        return;
+    }
+    // ---- cover centred on top, title and artist centred under it, progress across
+    let cx = x + ((w - cs) / 2.0).round();
+    draw_cover(p, cx, y + pd, cs);
+    let tw = w - 2.0 * pd;
+    let tb = y + pd + cs + 26.0 * k;
+    let t = ellipsize(p, &title, 18.0 * k, W::Medium, tw);
+    text_c(p, x + w / 2.0, tb, &t, 18.0 * k, W::Medium, tc);
+    let a = ellipsize(p, &artist, 14.5 * k, W::Regular, tw);
+    text_c(p, x + w / 2.0, tb + 21.0 * k, &a, 14.5 * k, W::Regular, ink.muted);
+    if let Some((el, tot, f)) = times {
+        bar(p, x + pd, bar_y, tw, 4.0 * k, Some(f), [accent, lerp_rgb(accent, WHITE, 0.4)], (WHITE, 26));
+        p.text(x + pd, bar_y - 9.0 * k, &el, 13.0 * k, W::Regular, ink.muted, 255);
+        text_r(p, x + w - pd, bar_y - 9.0 * k, &tot, 13.0 * k, W::Regular, ink.muted);
+    }
 }
 
 /// "Label value · Label value" in one line: labels muted, values bright; fitted to `max_w`.
@@ -1069,23 +1231,29 @@ fn chart(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, hist: Hi
     let tw = w - m - tx;
     tile(p, (tx, m, tw, ch), RAD * k, card_c(&ink));
     let colw = ((tw - 2.0 * pd) / 3.0).floor();
-    let top = m + pd + lcap + 16.0 * k;
+    // six rows per column: the label on the left, the value right-aligned on the same line
+    let top = m + pd + lcap + 14.0 * k;
     let rows = 6;
-    let vcap = 28.0 * k;
+    let pitch = ((m + ch - pd - top) / rows as f32).floor();
+    let vcap = (pitch * 0.5).min(30.0 * k);
     let lc = 12.0 * k;
-    let rch = kv_h(lc, vcap, k);
-    let pitch = ((m + ch - pd - top - rch) / (rows as f32 - 1.0)).floor();
     for (si, s) in secs.iter().enumerate() {
         let x = tx + pd + si as f32 * colw;
+        let cwid = colw - 26.0 * k;
         circle(p, x + 5.0 * k, m + pd + lcap * 0.5, 5.0 * k, s.colors[0], 255);
         let name = if si == 2 { format!("Memory {}%", s.hero) } else { s.name.to_string() };
         caps(p, x + 18.0 * k, m + pd + lcap, &name, lcap, ink.muted, k);
         for (ci, c) in s.cells.iter().enumerate() {
             let y = top + ci as f32 * pitch;
-            if ci > 0 {
-                p.layer.fill_rrect_solid((x.round(), (y - (pitch - rch) / 2.0).round(), (colw - 18.0 * k).round(), 1.0), 0.0, WHITE, 22);
-            }
-            kv(p, x, y, colw - 22.0 * k, c, lc, vcap, &ink, k);
+            p.layer.fill_rrect_solid((x.round(), y.round(), cwid.round(), 1.0), 0.0, WHITE, 20);
+            let base = y + pitch / 2.0 + vcap / 2.0;
+            let label = if c.value.contains(" / ") { "Net" } else { c.label };
+            let lw = caps(p, x, y + pitch / 2.0 + lc / 2.0, label, lc, ink.dim, k);
+            let pair = c.value.contains(" / ");
+            let cap = vu_fit(p, &c.value, &c.unit, if pair { vcap * 0.82 } else { vcap }, cwid - lw - 14.0 * k, W::Regular);
+            let vw = vu_width(p, &c.value, &c.unit, cap, W::Regular);
+            let vc = if c.color == th().text || c.color == th().dim { if c.value == "--" { ink.dim } else { ink.text } } else { c.color };
+            vu(p, x + cwid - vw, base, &c.value, &c.unit, cap, W::Regular, vc, ink.muted);
         }
     }
 }
