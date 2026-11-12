@@ -1,5 +1,5 @@
 //! Shared, bounded custom-canvas format. Coordinates use the 1920 x 462 canvas.
-pub const SENSORS: &[&str] = &["cpu_temp", "cpu_load", "cpu_power", "cpu_clock", "cpu_fan", "uptime", "network_down", "network_up", "gpu_temp", "gpu_hotspot", "gpu_load", "gpu_power", "gpu_fan", "gpu_clock", "vram", "fps", "ram_used", "ram_free", "ssd_temp", "disk_used", "disk_read", "disk_write", "clock", "date", "weather", "music"];
+pub const SENSORS: &[&str] = &["cpu_temp", "cpu_load", "cpu_power", "cpu_clock", "cpu_fan", "uptime", "network_down", "network_up", "gpu_temp", "gpu_hotspot", "gpu_load", "gpu_power", "gpu_fan", "gpu_clock", "vram", "fps", "pump_fan", "case_fan", "ram_used", "ram_free", "ssd_temp", "disk_used", "disk_read", "disk_write", "clock", "date", "weather", "music"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Widget {

@@ -25,6 +25,7 @@ flip = false
 | `pro_style` | `cards`, `glass`, `flat`; used by the original Classic/Cockpit/Focus renderers |
 | `pro_fan_sensor` | CPU fan: a motherboard header (`NCT6687D / CPU Fan`) or an external sensor label; omit for automatic |
 | `fps_ignore` | Extra programs never measured as the game, comma separated; `none` disables the built-in list [restart] |
+| `update_check` | `false` stops the settings app from asking GitHub for a newer release when it opens |
 | `weather_city` | Optional fixed city; requires restart |
 
 Use commas to build your own layout or palette rotation. Changing the displayed layout does not change the sensor source.

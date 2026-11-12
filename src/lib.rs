@@ -329,6 +329,23 @@ pub struct LyLcd {
     /// notes above about 0x01 vs 0x09).
     ep_write: u8,
     ep_read: u8,
+    /// The last JPEG sent and what it was made from (pixel hash, rotation, brightness,
+    /// quality): an unchanged picture is sent again without rotating and encoding it.
+    last: std::sync::Mutex<Option<(u64, Rotation, u8, u8, Vec<u8>)>>,
+}
+
+/// A fast 64-bit hash of the pixels (only to notice an unchanged picture).
+fn pixel_hash(px: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ px.len() as u64;
+    let mut chunks = px.chunks_exact(8);
+    for c in &mut chunks {
+        let v = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]);
+        h = (h ^ v).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+    for &b in chunks.remainder() {
+        h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
 }
 
 /// Endpoint info detected on one interface — used by `open()` and
@@ -394,6 +411,7 @@ impl LyLcd {
                 variant,
                 ep_write,
                 ep_read,
+                last: std::sync::Mutex::new(None),
             });
         }
         Err(LcdError::NotFound)
@@ -540,6 +558,14 @@ impl LyLcd {
         } else {
             handshake.rotation
         };
+        let key = (pixel_hash(&fb.pixels), rot, handshake.brightness, quality);
+        if let Ok(last) = self.last.lock() {
+            if let Some((h, r, b, q, jpeg)) = last.as_ref() {
+                if (*h, *r, *b, *q) == key {
+                    return self.send_frame(jpeg);
+                }
+            }
+        }
         let rotated;
         let src = if rot == Rotation::R0 {
             fb
@@ -559,7 +585,13 @@ impl LyLcd {
         let mut q = quality.clamp(1, 100);
         loop {
             match src.to_jpeg(q) {
-                Ok(jpeg) => return self.send_frame(&jpeg),
+                Ok(jpeg) => {
+                    let sent = self.send_frame(&jpeg);
+                    if let Ok(mut last) = self.last.lock() {
+                        *last = Some((key.0, key.1, key.2, key.3, jpeg));
+                    }
+                    return sent;
+                }
                 Err(LcdError::FrameTooLarge(_)) if q > 20 => q = q.saturating_sub(12).max(20),
                 Err(e) => return Err(e),
             }

@@ -24,6 +24,8 @@ pub(super) fn paint_custom(p: &mut Painter, w: f32, h: f32, d: &Data, now: &chro
         };
         let value=if let Some(item)=selected {format!("{} {}",item.value,if key=="fps" {"FPS"}else{&item.unit})} else {match key {
             "cpu_temp"=>format!("{} °C",v.cpu_temp), "gpu_temp"=>format!("{} °C",v.gpu_temp),
+            "pump_fan"=>d.fans.iter().find(|f| f.label.to_ascii_lowercase().contains("pump")).map(|f| format!("{} RPM", f.rpm)).unwrap_or("--".into()),
+            "case_fan"=>d.fans.iter().find(|f| { let l=f.label.to_ascii_lowercase(); f.rpm>0 && !l.contains("cpu") && !l.contains("pump") }).map(|f| format!("{} RPM", f.rpm)).unwrap_or("--".into()),
             "clock"=>v.hhmm.clone(), "date"=>v.date.clone(),
             "weather"=>v.wx.as_ref().map(|wx|format!("{} {}",wx.temp,wx.cond)).unwrap_or("--".into()),
             "music"=>d.track.map(|t|format!("{} — {}",t.title,t.artist)).unwrap_or("Nothing playing".into()), _=>"--".into(),
@@ -645,7 +647,7 @@ fn terminal(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cover
     let vcap = 21.0 * k;
     // prompt line + clock
     let ty = m + cap;
-    let pw = glow_text(p, m, ty, "trofeo@lcd:~$", cap, W::Medium, hi, 40);
+    let pw = glow_text(p, m, ty, "aperture@huybruh:~$", cap, W::Medium, hi, 40);
     p.text(m + pw + 10.0 * k, ty, "monitor --live", cap, W::Regular, mid, 255);
     let blink = if v.secs % 2 == 0 { 255 } else { 40 };
     rect(p, (m + pw + 10.0 * k + p.width("monitor --live", cap, W::Regular) + 8.0 * k, ty - cap, 10.0 * k, cap + 2.0 * k), hi, blink);
@@ -903,12 +905,20 @@ fn chamfer(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cover:
             poly(p, &[(x0 + 6.0 * k, sy), (x0 + fw, sy), (x0 + fw - 6.0 * k, sy + 6.0 * k), (x0, sy + 6.0 * k)], cc, 255);
         }
         if let Some(wx) = &v.wx {
-            let wy = sy + 22.0 * k;
-            weather_icon(p, x0 - 4.0 * k, wy, 50.0 * k, wx.icon, wx.night);
-            p.text(x0 + 52.0 * k, wy + 25.0 * k + sc.l / 2.0, &wx.temp, sc.l, W::Medium, th().text, 255);
+            // the current weather sits in the middle of the room between the seconds bar and
+            // the forecast row (or the bottom of the panel when there is no forecast)
+            let days_base = top + ph - 14.0 * k;
+            let floor = if wx.days.is_empty() { top + ph - 14.0 * k } else { days_base - sc.m - sc.s - 30.0 * k };
+            let icon = 58.0 * k;
+            let tcap = sc.l * 1.15;
+            let block = icon + 14.0 * k + sc.m * 0.9;
+            let wy = (sy + 6.0 * k + ((floor - sy - 6.0 * k - block) / 2.0).max(10.0 * k)).round();
+            weather_icon(p, x0 - 4.0 * k, wy, icon, wx.icon, wx.night);
+            p.text(x0 + icon + 6.0 * k, wy + icon / 2.0 + tcap / 2.0, &wx.temp, tcap, W::Medium, th().text, 255);
             let line = if wx.city.is_empty() { wx.cond.clone() } else { format!("{} \u{b7} {}", wx.cond, wx.city) };
-            p.text(x0, wy + 50.0 * k + 10.0 * k + sc.m * 0.9, &ellipsize(p, &line, sc.m * 0.9, W::Regular, x1 - x0), sc.m * 0.9, W::Regular, th().muted, 255);
-            weather_days_row(p, sc, x0, top + ph - 14.0 * k, x1 - x0, &wx.days, th().dim, th().text, th().dim);
+            let lc = p.fit(&line, sc.m * 0.9, x1 - x0, W::Regular).max(sc.m * 0.75);
+            p.text(x0, wy + icon + 14.0 * k + lc, &ellipsize(p, &line, lc, W::Regular, x1 - x0), lc, W::Regular, th().muted, 255);
+            weather_days_row(p, sc, x0, days_base, x1 - x0, &wx.days, th().dim, th().text, th().dim);
         }
     }
     // now playing
@@ -923,7 +933,7 @@ fn chamfer(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cover:
                 music_note(p, (x0 + x1) / 2.0, top + ph / 2.0, 52.0 * k, th().dim);
             }
             Some((title, artist)) => {
-                let cs = (x1 - x0).min(ph - 190.0 * k).floor();
+                let cs = (x1 - x0).min(ph - 166.0 * k).floor();
                 // cover in a slanted frame
                 cover_or_note(p, cover, x0 + (x1 - x0 - cs) / 2.0, top + 44.0 * k, cs, 6.0 * k, th().muted, ((30, 32, 40), (20, 21, 27)));
                 let ty = top + 44.0 * k + cs + 24.0 * k;
@@ -1558,7 +1568,7 @@ fn receipt(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cover:
     };
     let mut y = py0 + 40.0 * k;
     // header
-    text_c(p, w / 2.0, y + 30.0 * k, "TROFEO LCD", 40.0 * k, W::Medium, ink);
+    text_c(p, w / 2.0, y + 30.0 * k, "APERTURE", 40.0 * k, W::Medium, ink);
     y += 44.0 * k;
     let sub = "SYSTEM STATUS RECEIPT";
     let sw = spaced_width(p, sub, sc.s, W::Medium, 3.0 * k);
@@ -1947,7 +1957,7 @@ fn blueprint(p: &mut Painter, w: f32, h: f32, sc: &Scale, d: &Data, v: &Vm, cove
     p.layer.stroke_rrect((x0.round(), ty.round(), cwid.round(), (tbh - 12.0 * k).round()), 0.0, 1.5 * k, line, 230);
     capsule(p, (x0 + cwid * 0.55, ty), (x0 + cwid * 0.55, ty + tbh - 12.0 * k), 0.8 * k, line, 200);
     capsule(p, (x0, ty + (tbh - 12.0 * k) / 2.0), (x1, ty + (tbh - 12.0 * k) / 2.0), 0.8 * k, line, 200);
-    spaced(p, x0 + 10.0 * k, ty + 22.0 * k, "TROFEO LCD", sc.m, W::Medium, WHITE, 2.0 * k);
+    spaced(p, x0 + 10.0 * k, ty + 22.0 * k, "APERTURE", sc.m, W::Medium, WHITE, 2.0 * k);
     p.text(x0 + 10.0 * k, ty + 42.0 * k, "MONITORING UNIT", sc.s * 0.9, W::Regular, soft, 255);
     p.text(x0 + 10.0 * k, ty + 74.0 * k, &format!("DWG {}", v.date.to_uppercase()), sc.s * 0.9, W::Regular, line, 255);
     let bx = x0 + cwid * 0.55 + 10.0 * k;

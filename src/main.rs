@@ -1517,6 +1517,35 @@ fn report_config_error(msg: &str) {
     }
 }
 
+/// Exit code meaning "start me again right away" (see `--keep-alive`).
+const RESTART_EXIT_CODE: i32 = 3;
+
+fn exe_dir() -> Option<std::path::PathBuf> {
+    std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf()))
+}
+
+/// What the panel shows, for the live view of the settings app (written atomically).
+fn write_live_frame(fb: &Framebuffer) {
+    let Some(dir) = exe_dir() else { return };
+    let tmp = dir.join("trofeo-live.png.tmp");
+    if std::fs::write(&tmp, png_save::encode(fb)).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join("trofeo-live.png"));
+    }
+}
+
+/// Files left by an update (*.old.exe, still running then) are removed at the next start.
+fn remove_old_files() {
+    let Some(dir) = exe_dir() else { return };
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if name.ends_with(".old.exe") || name == "trofeo-live.png" || name == "trofeo-live.png.tmp" {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
 /// `trofeo-status.txt` next to the program: what the display process found (display,
 /// sensor sources) and its live readings, read by the settings app to explain problems.
 ///
@@ -1621,6 +1650,9 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    remove_old_files();
+    let _ = std::fs::remove_file(exe_dir().unwrap_or_default().join("trofeo-restart.request"));
+
     let lcd = match LyLcd::open() {
         Ok(l) => l,
         Err(e) => {
@@ -1630,6 +1662,7 @@ fn main() -> anyhow::Result<()> {
     };
     let mut hs = lcd.handshake()?;
     set_status("lcd", "connected");
+    set_status("supervised", if std::env::var_os("APERTURE_SUPERVISED").is_some() { "1" } else { "0" });
     hs.rotate_180 = ROTATE_180_OVERRIDE;
     hs.rotation = config.orientation.output_rotation(config.flip);
     hs.brightness = config.brightness;
@@ -1847,8 +1880,36 @@ fn main() -> anyhow::Result<()> {
     let mut last_snap_req = Instant::now();
     let snap_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
+    let mut last_request_check = Instant::now();
+    let mut live_wanted = false;
+    let mut last_live = Instant::now() - Duration::from_secs(10);
     loop {
         let frame_start = Instant::now();
+
+        // Requests from the settings app, as files next to the program (the app runs
+        // without administrator rights, this program with them):
+        // - trofeo-restart.request: exit; `--keep-alive` starts the program again at once
+        //   (new settings that need a restart, or an update that replaced the exe);
+        // - trofeo-live.request (touched every second while the app shows the live view):
+        //   write what the panel shows to trofeo-live.png once a second.
+        if last_request_check.elapsed() >= Duration::from_secs(1) {
+            last_request_check = Instant::now();
+            if let Some(dir) = exe_dir() {
+                let rq = dir.join("trofeo-restart.request");
+                if rq.exists() && std::env::var_os("APERTURE_SUPERVISED").is_some() {
+                    let _ = std::fs::remove_file(&rq);
+                    println!("Restart requested by the settings app.");
+                    #[cfg(windows)]
+                    fps_etw::stop();
+                    std::process::exit(RESTART_EXIT_CODE);
+                }
+                live_wanted = std::fs::metadata(dir.join("trofeo-live.request"))
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age < Duration::from_secs(4));
+            }
+        }
 
         // Hot reload: if trofeo.conf changes, reapply the settings without restarting.
         if last_config_check.elapsed() >= Duration::from_secs(1) {
@@ -2267,6 +2328,7 @@ fn main() -> anyhow::Result<()> {
                 ram_total_mb: sys.total_memory() / 1024 / 1024,
                 disk: extra.disk.as_ref(),
                 cpu_fan_rpm: ext_fan,
+                fans: extra.board.as_ref().map(|b| b.fans.as_slice()).unwrap_or(&[]),
                 disk_rate: latest_disk_mb,
                 net_kb: latest_net_kb,
                 weather: latest_weather.as_ref(),
@@ -2362,6 +2424,10 @@ fn main() -> anyhow::Result<()> {
 
         // 4) Send to the screen.
         lcd.send_framebuffer(&hs, &fb, 75)?;
+        if live_wanted && last_live.elapsed() >= Duration::from_millis(900) {
+            last_live = Instant::now();
+            write_live_frame(&fb);
+        }
 
         // 5) Adjust the pace to approach the current `target_fps` (idle or
         // active — can differ each iteration), without forcing it if it's
@@ -2395,10 +2461,22 @@ fn keep_alive(args: Vec<String>) -> anyhow::Result<()> {
     if hide {
         let _ = hide_console_window();
     }
-    let exe = std::env::current_exe()?;
+    let me = std::env::current_exe()?;
+    if std::env::var_os("APERTURE_HANDOFF").is_some() {
+        // the previous supervisor (an older, renamed file) is closing: let it go first
+        std::thread::sleep(Duration::from_millis(1500));
+        std::env::remove_var("APERTURE_HANDOFF");
+    }
     loop {
+        remove_old_files();
+        // Always the program file by its own name: after an update renamed the running
+        // file to *.old.exe, the new one is started.
+        let named = me.parent().map(|d| d.join(if cfg!(windows) { "aperture-display.exe" } else { "aperture-display" }));
+        let exe = named.filter(|p| p.is_file()).unwrap_or_else(|| me.clone());
         let mut cmd = std::process::Command::new(&exe);
         cmd.args(&child_args);
+        // tells the child that a restart request will bring it back (see trofeo-restart.request)
+        cmd.env("APERTURE_SUPERVISED", "1");
         #[cfg(windows)]
         if hide {
             use std::os::windows::process::CommandExt;
@@ -2408,6 +2486,28 @@ fn keep_alive(args: Vec<String>) -> anyhow::Result<()> {
         }
         match cmd.status() {
             Ok(s) if s.success() => return Ok(()),
+            Ok(s) if s.code() == Some(RESTART_EXIT_CODE) => {
+                println!("aperture-display restarting on request");
+                // After an update this supervisor still runs from the renamed old file: hand
+                // over to a supervisor from the new file, so the old one can be removed.
+                let renamed = me.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().ends_with(".old.exe"));
+                if renamed && exe != me {
+                    let mut next = std::process::Command::new(&exe);
+                    next.arg("--keep-alive").args(&args).env("APERTURE_HANDOFF", "1");
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                        next.creation_flags(0x0000_0008 | 0x0000_0200);
+                        next.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+                    }
+                    if next.spawn().is_ok() {
+                        return Ok(());
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(400));
+                continue;
+            }
             Ok(s) => eprintln!("aperture-display stopped ({s}): starting it again in 3 s..."),
             Err(e) => eprintln!("could not start aperture-display ({e}): trying again in 3 s..."),
         }
@@ -2556,6 +2656,11 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
         // Fixture switches only affect this hardware-free preview path.
         let preview_empty = std::env::var_os("APERTURE_PREVIEW_EMPTY").is_some();
         let empty_gpu = gpu_amd::GpuAmdData::default();
+        let sample_fans = [
+            superio::Fan { label: "CPU Fan".into(), rpm: 1180 },
+            superio::Fan { label: "Pump Fan".into(), rpm: 2350 },
+            superio::Fan { label: "System Fan 1".into(), rpm: 960 },
+        ];
         let mut data = pro::Data {
             cpu_name: "AMD Ryzen 7 5800X",
             cores: (8, 16),
@@ -2569,6 +2674,7 @@ fn render_preview(config: &Config, req: &PreviewReq) -> anyhow::Result<Framebuff
             ram_total_mb: 32_691,
             disk: Some(&disk),
             cpu_fan_rpm: Some(1180),
+            fans: &sample_fans,
             disk_rate: (1.2, 0.3),
             net_kb: (12_700.0, 1_240.0),
             weather: Some(&weather_fc),

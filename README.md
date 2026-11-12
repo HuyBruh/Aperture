@@ -4,6 +4,14 @@
 
 <p align="center"><a href="#the-collection">The collection</a> Â· <a href="#get-started">Get started</a> Â· <a href="docs/CONFIGURATION.md">Configuration</a> Â· <a href="docs/DEVELOPMENT.md">Build & contribute</a></p>
 
+## New in 4.3
+
+- **See the real panel in the app.** "Live display" under the preview shows exactly what the screen shows, once a second.
+- **One-click updates.** The app tells you when a new release is out, downloads and verifies it, keeps your `trofeo.conf` and restarts the display by itself, with no administrator prompt.
+- **Restart without UAC**, quick looks (six ready-made layout and palette pairs), a smooth crossfade between layouts, pump and case fan widgets, and a "Copy diagnostics" button for bug reports.
+
+![Settings: layouts](docs/img/aperture/app-layouts.png)
+
 ## New in 4.2
 
 | Layout | Idea |
@@ -23,7 +31,6 @@
 - **Sharp album covers.** The cover keeps its full resolution and is resized once per size with Lanczos / Catmull-Rom, instead of being shrunk to 160 px and stretched back.
 - **A new settings app.** Side navigation, every layout (34) and every palette (12) visible with filters, a live Sensors page (temperatures, fans, FPS and where each comes from), a cleaner Customize page, a restart button that finds the real autostart task.
 
-![Settings: layouts](docs/img/aperture/app-layouts.png)
 ![Settings: sensors](docs/img/aperture/app-sensors.png)
 
 ## The collection

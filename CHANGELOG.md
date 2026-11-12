@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.3.0
+
+- **Live view.** The settings app can show exactly what the panel shows, once a second ("Live display" under the preview).
+- **Updates from the app.** Aperture checks GitHub for a newer release when it opens (`update_check = false` turns it off), downloads `aperture-windows.zip`, verifies it against `SHA256SUMS.txt`, replaces the program files while keeping `trofeo.conf`, and restarts the display. No administrator prompt.
+- **Restart without UAC.** Under the autostart task (`--keep-alive`) the display program restarts on a request from the app; the app falls back to the elevated restart only for an older or unsupervised display program, and starts the autostart task (or the installer) when nothing runs.
+- **Quick looks**: six one-click combinations of a layout and a palette.
+- **Smooth layout changes**: a 0.6 s crossfade when the layout, palette or custom canvas changes.
+- **Pump and case fans** as canvas widgets (`pump_fan`, `case_fan`), read from the motherboard headers.
+- Copy diagnostics for bug reports, app and display versions in the side bar (a mismatch is shown in amber), an Updates section on the Sensors page.
+- Unchanged frames are sent to the panel again without rotating and re-encoding them; files left by an update (`*.old.exe`) are removed at the next start.
+- Chamfer: the weather sits in the middle of its panel and the album cover is larger. Terminal, Receipt and Blueprint carry the Aperture name.
+
 ## 4.2.1
 
 - The seven Aperture layouts redrawn on the Grid kit: equal 12 px gaps and equal columns, room between every value and the next label, heroes sized to the panel, hotspot and core count always shown.

@@ -1,5 +1,19 @@
 # Validation — Aperture 4.0
 
+## 4.3.0 — 11 November 2026
+
+Built on the same Windows PC (Rust 1.99.1, x86_64-pc-windows-gnu, WinLibs GCC 16.2) and
+installed there. The status file reported `version=4.3.0`, `lcd=connected` and
+`supervised=1`. A restart request from the app's folder restarted the display program in
+under two seconds without an administrator prompt, and a live-view request produced
+`trofeo-live.png` matching the panel (Orbit layout). Measured with Windows performance
+counters over 20 s on a 16-thread Ryzen 7 5700X3D at the default 4 frames per second:
+about 11 % of one thread (≈0.7 % of the whole CPU) and 72 MB private memory; turning
+FPS capture off made no measurable difference. The update path was exercised against a
+local release feed: download, size and SHA-256 check passed; the file replacement step is
+Windows-only and is checked by the next real release. 184 display-program tests and the
+settings-app tests (version comparison, base64) pass.
+
 ## 4.2.0 — 11 November 2026
 
 Built on Windows (Rust stable, x86_64-pc-windows-gnu, WinLibs GCC) and installed on the

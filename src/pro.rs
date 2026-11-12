@@ -591,8 +591,10 @@ pub struct Data<'a> {
     pub ram_used_mb: u64,
     pub ram_total_mb: u64,
     pub disk: Option<&'a DiskInfo>,
-    /// CPU fan (HWiNFO shared memory), when available.
+    /// CPU fan (motherboard, HWiNFO or LibreHardwareMonitor), when available.
     pub cpu_fan_rpm: Option<u32>,
+    /// Every fan header of the motherboard (for the pump / case fan readings).
+    pub fans: &'a [crate::superio::Fan],
     /// Read / write, MB/s.
     pub disk_rate: (f64, f64),
     /// Down / up, KB/s.
@@ -664,6 +666,9 @@ pub struct ProScreen {
     hist_ver: u64,
     cover: Option<Cover>,
     logo: (String, Option<Cover>),
+    /// Layout / colors drawn last, and the frame they made: a change cross-fades from it.
+    look: String,
+    fade: Option<(Vec<u8>, Instant)>,
     /// Titles too long for their box, scrolled on every frame, and since when.
     marquees: Vec<MarqueeSpec>,
     marquee_since: Instant,
@@ -748,6 +753,8 @@ impl ProScreen {
             hist_ver: 0,
             cover: None,
             logo: (String::new(), None),
+            look: String::new(),
+            fade: None,
             marquees: Vec::new(),
             marquee_since: Instant::now(),
             marquee_k: 1.0,
@@ -1014,6 +1021,14 @@ impl ProScreen {
             }
         }
         CURRENT.with(|c| c.set((theme, settings.style)));
+        // a new layout or new colors: keep the last frame to cross-fade from
+        let look = format!("{}|{}|{:?}|{}", layout.name(), theme.name, theme.cpu, settings.custom_enabled);
+        if look != self.look {
+            if !self.look.is_empty() && self.splash_done {
+                self.fade = Some((area_bytes(fb, area), Instant::now()));
+            }
+            self.look = look;
+        }
         if !settings.custom_enabled && !(settings.edit_background && settings.edit_layout==layout.name()) { fb.clear(theme.bg.0, theme.bg.1, theme.bg.2); }
         // a new song opens its pop-up (not at start-up, not when the same song resumes)
         let key = d.track.map(|t| (t.title.clone(), t.artist.clone()));
@@ -1118,11 +1133,20 @@ impl ProScreen {
         } else {
             self.paint_song_osd(fb, area, d);
         }
+        if let Some((old, since)) = &self.fade {
+            let t = since.elapsed().as_secs_f32() / FADE_SECS;
+            if t >= 1.0 || old.len() != (area.2 * area.3 * 3) as usize {
+                self.fade = None;
+            } else {
+                let e = t * t * (3.0 - 2.0 * t);
+                blend_area(fb, area, old, e);
+            }
+        }
         self.paint_splash(fb, area);
         crate::smooth_font::set_family(crate::smooth_font::Family::Chakra);
     }
 
-    /// The HuyBruh Dash logo for a moment when the display starts.
+    /// The Aperture mark for a moment when the display starts.
     fn paint_splash(&mut self, fb: &mut Framebuffer, area: (u32, u32, u32, u32)) {
         if self.splash_done || self.portrait {
             self.splash_done = true;
@@ -1357,13 +1381,48 @@ impl ProScreen {
         self.place_osd(fb, area);
     }
 
-    /// True while a title is scrolling (the main loop then raises the frame rate).
+    /// True while a title is scrolling or a cross-fade runs (the main loop then raises the
+    /// frame rate).
     pub fn animating(&self) -> bool {
+        if self.fade.is_some() {
+            return true;
+        }
         let t = self.marquee_since.elapsed().as_secs_f32();
         self.marquees.iter().any(|m| {
             let tw = crate::smooth_font::text_width(&m.text, crate::smooth_font::px_for_cap(m.cap), sfw(m.weight));
             marquee_offset(tw, 70.0 * self.marquee_k, MARQ_SPEED * self.marquee_k, t).1
         })
+    }
+}
+
+/// Seconds of the cross-fade between two layouts or two color themes.
+const FADE_SECS: f32 = 0.6;
+
+/// The RGB bytes of `area` of the frame buffer.
+fn area_bytes(fb: &Framebuffer, area: (u32, u32, u32, u32)) -> Vec<u8> {
+    let (x0, y0, w, h) = area;
+    let fw = fb.width() as usize;
+    let src = fb.as_bytes();
+    let mut out = Vec::with_capacity((w * h * 3) as usize);
+    for y in y0..y0 + h {
+        let i = (y as usize * fw + x0 as usize) * 3;
+        out.extend_from_slice(&src[i..i + w as usize * 3]);
+    }
+    out
+}
+
+/// Mixes `old` (the previous frame of `area`) under the new frame: `e` = 0 old, 1 new.
+fn blend_area(fb: &mut Framebuffer, area: (u32, u32, u32, u32), old: &[u8], e: f32) {
+    let (x0, y0, w, h) = area;
+    let fw = fb.width() as usize;
+    let a = (e.clamp(0.0, 1.0) * 256.0) as u32;
+    let dst = fb.as_bytes_mut();
+    for y in 0..h as usize {
+        let di = ((y0 as usize + y) * fw + x0 as usize) * 3;
+        let si = y * w as usize * 3;
+        for (d, o) in dst[di..di + w as usize * 3].iter_mut().zip(&old[si..si + w as usize * 3]) {
+            *d = ((u32::from(*d) * a + u32::from(*o) * (256 - a)) >> 8) as u8;
+        }
     }
 }
 

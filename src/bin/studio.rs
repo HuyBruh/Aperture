@@ -460,6 +460,207 @@ fn run_elevated(script: &str) {
 const RESTART_SCRIPT: &str = "$t = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { (($_.Actions | ForEach-Object { $_.Execute }) -join ' ') -match 'aperture-display' } | Select-Object -First 1; if ($t) { $t | Stop-ScheduledTask -ErrorAction SilentlyContinue }; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; if ($t) { $t | Start-ScheduledTask }";
 const PAWNIO_SCRIPT: &str = "winget install --id namazso.PawnIO -e --silent --accept-source-agreements --accept-package-agreements; $t = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { (($_.Actions | ForEach-Object { $_.Execute }) -join ' ') -match 'aperture-display' } | Select-Object -First 1; if ($t) { $t | Stop-ScheduledTask -ErrorAction SilentlyContinue }; Get-Process aperture-display -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; if ($t) { $t | Start-ScheduledTask }";
 
+/// Starts the display: the autostart task when there is one, else the installer (which
+/// creates it), else the program by itself.
+const START_SCRIPT: &str = "$t = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { (($_.Actions | ForEach-Object { $_.Execute }) -join ' ') -match 'aperture-display' } | Select-Object -First 1; if ($t) { $t | Start-ScheduledTask } else { $d = '__DIR__'; $s = Join-Path $d 'scripts\\setup.ps1'; if (Test-Path -LiteralPath $s) { Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$s } else { Start-Process -FilePath (Join-Path $d 'aperture-display.exe') -ArgumentList '--keep-alive','--hide-console' -WindowStyle Hidden } }";
+
+fn ps_quote(p: &Path) -> String {
+    p.display().to_string().replace('\'', "''")
+}
+
+// ------------------------------------------------------------------------ updates
+
+const RELEASES_API: &str = "https://api.github.com/repos/HuyBruh/Aperture/releases/latest";
+
+#[derive(Clone)]
+struct Release {
+    tag: String,
+    zip_url: String,
+    zip_size: u64,
+    sums_url: Option<String>,
+    page: String,
+    notes: Vec<String>,
+}
+
+enum UpdateMsg {
+    Checked(Result<Option<Release>, String>),
+    Progress(f32),
+    Ready(PathBuf),
+    Failed(String),
+}
+
+#[derive(Clone, PartialEq)]
+enum UpdateState {
+    Idle,
+    Checking,
+    UpToDate,
+    Downloading(f32),
+    Failed(String),
+}
+
+fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
+    let s = s.trim().trim_start_matches(['v', 'V']);
+    let core = s.split(['-', '+']).next()?;
+    let mut it = core.split('.').map(|p| p.trim().parse::<u32>().ok());
+    Some((it.next()??, it.next().flatten().unwrap_or(0), it.next().flatten().unwrap_or(0)))
+}
+
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(8))
+        .timeout_read(Duration::from_secs(30))
+        .user_agent(concat!("Aperture/", env!("CARGO_PKG_VERSION")))
+        .build()
+}
+
+/// The latest release on GitHub when it is newer than this app.
+fn check_latest() -> Result<Option<Release>, String> {
+    use sensors_ext::json::{self, Value};
+    let body = agent()
+        .get(&std::env::var("APERTURE_UPDATE_URL").unwrap_or_else(|_| RELEASES_API.to_string()))
+        .set("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let v = json::parse(&body).ok_or("unexpected answer from GitHub")?;
+    let tag = v.get("tag_name").and_then(Value::as_str).ok_or("no release found")?.to_string();
+    let latest = parse_version(&tag).ok_or("unexpected release tag")?;
+    if latest <= parse_version(env!("CARGO_PKG_VERSION")).unwrap_or_default() {
+        return Ok(None);
+    }
+    let assets = v.get("assets").and_then(Value::as_arr).unwrap_or(&[]);
+    let find = |n: &str| assets.iter().find(|a| a.get("name").and_then(Value::as_str) == Some(n));
+    let zip = find("aperture-windows.zip").ok_or("the release has no aperture-windows.zip")?;
+    let url = |a: &Value| a.get("browser_download_url").and_then(Value::as_str).map(str::to_string);
+    let notes = v
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("- ") || l.starts_with("* "))
+        .map(|l| l[2..].replace("**", "").replace('`', ""))
+        .take(4)
+        .collect();
+    Ok(Some(Release {
+        tag,
+        zip_url: url(zip).ok_or("no download link")?,
+        zip_size: match zip.get("size") {
+            Some(Value::Num(n)) => *n as u64,
+            _ => 0,
+        },
+        sums_url: find("SHA256SUMS.txt").and_then(url),
+        page: v.get("html_url").and_then(Value::as_str).unwrap_or("https://github.com/HuyBruh/Aperture/releases/latest").to_string(),
+        notes,
+    }))
+}
+
+/// Downloads the release ZIP to the temp folder and checks its SHA-256 against
+/// SHA256SUMS.txt of the same release.
+fn download(r: &Release, tx: &mpsc::Sender<UpdateMsg>, ctx: &egui::Context) -> Result<PathBuf, String> {
+    use std::io::{Read, Write};
+    let dir = std::env::temp_dir().join("aperture-update");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("aperture-windows.zip");
+    let resp = agent().get(&r.zip_url).call().map_err(|e| e.to_string())?;
+    let total = if r.zip_size > 0 { r.zip_size } else { resp.header("Content-Length").and_then(|s| s.parse().ok()).unwrap_or(0) };
+    let mut reader = resp.into_reader();
+    let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    let mut sha = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got = 0u64;
+    let mut shown = Instant::now();
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        sha.update(&buf[..n]);
+        got += n as u64;
+        if total > 0 && shown.elapsed() > Duration::from_millis(100) {
+            shown = Instant::now();
+            let _ = tx.send(UpdateMsg::Progress(got as f32 / total as f32));
+            ctx.request_repaint();
+        }
+    }
+    drop(file);
+    if r.zip_size > 0 && got != r.zip_size {
+        return Err("the download was cut off".into());
+    }
+    if let Some(u) = &r.sums_url {
+        let sums = agent().get(u).call().map_err(|e| e.to_string())?.into_string().map_err(|e| e.to_string())?;
+        let have: String = sha.finish().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        let want = sums.lines().find(|l| l.contains("aperture-windows.zip")).and_then(|l| l.split_whitespace().next());
+        if want.is_some_and(|w| !w.eq_ignore_ascii_case(&have)) {
+            return Err("checksum does not match, nothing was changed".into());
+        }
+    }
+    Ok(path)
+}
+
+/// Replaces the program files with the ones in the ZIP once this app has closed, keeps
+/// trofeo.conf, asks the display program to restart and opens the new app. Running
+/// programs are renamed to *.old.exe first (Windows allows that); the display program
+/// removes those at its next start. No administrator rights needed.
+fn apply_update(zip: &Path, app_dir: &Path) -> Result<(), String> {
+    let script = format!(
+        r#"$ErrorActionPreference = 'Continue'
+Wait-Process -Id {pid} -Timeout 20 -ErrorAction SilentlyContinue
+$app = '{app}'; $zip = '{zip}'
+$tmp = Join-Path (Split-Path $zip) 'files'
+Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+$exe = Get-ChildItem -LiteralPath $tmp -Recurse -Filter 'aperture-display.exe' | Select-Object -First 1
+if ($exe) {{
+  $src = $exe.DirectoryName
+  Get-ChildItem -LiteralPath $src -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+  foreach ($f in Get-ChildItem -LiteralPath $src -Recurse -File) {{
+    $rel = $f.FullName.Substring($src.Length).TrimStart('')
+    if ($rel -ieq 'trofeo.conf') {{ continue }}
+    $dst = Join-Path $app $rel
+    New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
+    if ($f.Extension -ieq '.exe' -and (Test-Path -LiteralPath $dst)) {{
+      Rename-Item -LiteralPath $dst -NewName ($f.BaseName + '.' + (Get-Random) + '.old.exe') -Force
+    }}
+    Copy-Item -LiteralPath $f.FullName -Destination $dst -Force
+  }}
+  Set-Content -LiteralPath (Join-Path $app 'trofeo-restart.request') -Value 'update'
+}}
+Start-Process -FilePath (Join-Path $app 'aperture.exe')
+Remove-Item -LiteralPath (Split-Path $zip) -Recurse -Force -ErrorAction SilentlyContinue
+"#,
+        pid = std::process::id(),
+        app = ps_quote(app_dir),
+        zip = ps_quote(zip)
+    );
+    #[cfg(windows)]
+    {
+        let utf16: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        hidden(std::process::Command::new("powershell").args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", &base64(&utf16)]))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = script;
+        Err("updates are installed on Windows only".into())
+    }
+}
+
+/// Ready-made combinations of a layout and a palette.
+const LOOKS: &[(&str, &str, &str, &str)] = &[
+    ("Calm", "Dịu mắt", "grid", "mineral"),
+    ("Paper", "Giấy", "studio", "sand"),
+    ("Departures", "Sân bay", "board", "ember"),
+    ("Race", "Đua xe", "cluster", "crimson"),
+    ("Listening", "Nghe nhạc", "atelier", "iris"),
+    ("Analyst", "Theo dõi", "pulse", "arctic"),
+];
+
 // ------------------------------------------------------------------------ app
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -511,6 +712,17 @@ struct App {
     adapter: String,
     custom: [u8; 3],
     logo: Option<egui::TextureHandle>,
+    // the live view of the panel
+    live: bool,
+    live_tex: Option<egui::TextureHandle>,
+    live_stamp: Option<std::time::SystemTime>,
+    live_at: Option<Instant>,
+    // updates
+    update_rx: Option<mpsc::Receiver<UpdateMsg>>,
+    release: Option<Release>,
+    update_state: UpdateState,
+    update_hidden: bool,
+    note: Option<(String, Instant)>,
 }
 
 impl App {
@@ -544,7 +756,7 @@ impl App {
         // start on the group of the layout in use
         let current = doc.get("pro_layout").unwrap_or_default();
         let filter = LAYOUTS.iter().find(|l| l.key == current).map_or(Filter::All, |l| Filter::Only(l.group));
-        App {
+        let mut app = App {
             lang,
             page: match std::env::var("TROFEO_STUDIO_PAGE").as_deref() {
                 Ok("colors") => Page::Colors,
@@ -585,7 +797,94 @@ impl App {
                 let img = egui::ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw());
                 cc.egui_ctx.load_texture("logo", img, egui::TextureOptions::LINEAR)
             }),
+            live: false,
+            live_tex: None,
+            live_stamp: None,
+            live_at: None,
+            update_rx: None,
+            release: None,
+            update_state: UpdateState::Idle,
+            update_hidden: false,
+            note: None,
+        };
+        if app.bool_of("update_check", true) && std::env::var_os("TROFEO_STUDIO_PAGE").is_none() {
+            app.check_updates(&cc.egui_ctx);
         }
+        app
+    }
+
+    fn check_updates(&mut self, ctx: &egui::Context) {
+        let (tx, rx) = mpsc::channel();
+        let c = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(UpdateMsg::Checked(check_latest()));
+            c.request_repaint();
+        });
+        self.update_rx = Some(rx);
+        self.update_state = UpdateState::Checking;
+    }
+
+    fn start_update(&mut self, ctx: &egui::Context) {
+        let Some(r) = self.release.clone() else { return };
+        let (tx, rx) = mpsc::channel();
+        let c = ctx.clone();
+        std::thread::spawn(move || {
+            let msg = match download(&r, &tx, &c) {
+                Ok(p) => UpdateMsg::Ready(p),
+                Err(e) => UpdateMsg::Failed(e),
+            };
+            let _ = tx.send(msg);
+            c.request_repaint();
+        });
+        self.update_rx = Some(rx);
+        self.update_state = UpdateState::Downloading(0.0);
+    }
+
+    /// Restarts the display program: through a request file when it runs under
+    /// `--keep-alive` (no administrator prompt), else through its autostart task.
+    fn restart_display(&mut self) {
+        let s = &self.status;
+        if s.alive && s.get("supervised") == Some("1") && std::fs::write(self.dir.join("trofeo-restart.request"), "restart").is_ok() {
+            self.note = Some((self.t("Restarting the display…", "Đang khởi động lại màn hình…").into(), Instant::now()));
+        } else if s.alive {
+            run_elevated(RESTART_SCRIPT);
+        } else {
+            run_elevated(&START_SCRIPT.replace("__DIR__", &ps_quote(&self.dir)));
+        }
+        self.restart_needed = false;
+        self.status_at = None;
+    }
+
+    /// What support needs to know, as text for the clipboard.
+    fn diagnostics(&self) -> String {
+        let s = &self.status;
+        let mut out = format!(
+            "Aperture {}\nsettings: {}\ndisplay program running: {}\nPawnIO: {}\nexternal sensors: {}\n",
+            env!("CARGO_PKG_VERSION"),
+            self.path.display(),
+            s.alive,
+            match s.pawnio {
+                Some(true) => "installed",
+                Some(false) => "not installed",
+                None => "-",
+            },
+            match s.ext.as_ref().map(|(src, _)| *src) {
+                Some(Source::Hwinfo) => "HWiNFO",
+                Some(Source::Lhm) => "LibreHardwareMonitor",
+                None => "none",
+            }
+        );
+        let mut keys: Vec<_> = s.map.iter().collect();
+        keys.sort();
+        for (k, v) in keys {
+            out.push_str(&format!("{k}={v}\n"));
+        }
+        for key in ["pro_layout", "pro_theme", "orientation", "flip", "pro_fan_sensor", "fps_ignore"] {
+            if let Some(v) = self.get(key) {
+                out.push_str(&format!("conf.{key}={v}\n"));
+            }
+        }
+        out
     }
 
     fn t<'a>(&self, en: &'a str, vi: &'a str) -> &'a str {
@@ -660,6 +959,20 @@ impl App {
         }
     }
 
+    fn autosave_now(&mut self) {
+        self.changed_at = None;
+        self.autosave();
+    }
+
+    fn set_live(&mut self, on: bool) {
+        self.live = on;
+        if !on {
+            self.live_tex = None;
+            self.live_stamp = None;
+            let _ = std::fs::remove_file(self.dir.join("trofeo-live.request"));
+        }
+    }
+
     fn pump(&mut self, ctx: &egui::Context) {
         // finished pictures
         if let Some(rx) = &self.done {
@@ -712,6 +1025,48 @@ impl App {
                 self.thumbs_asked_at = None;
             }
         }
+        // updates
+        if let Some(rx) = &self.update_rx {
+            let mut close = false;
+            while let Ok(m) = rx.try_recv() {
+                match m {
+                    UpdateMsg::Checked(Ok(Some(r))) => {
+                        self.release = Some(r);
+                        self.update_state = UpdateState::Idle;
+                    }
+                    UpdateMsg::Checked(Ok(None)) => self.update_state = UpdateState::UpToDate,
+                    UpdateMsg::Checked(Err(e)) => self.update_state = UpdateState::Failed(e),
+                    UpdateMsg::Progress(f) => self.update_state = UpdateState::Downloading(f),
+                    UpdateMsg::Failed(e) => self.update_state = UpdateState::Failed(e),
+                    UpdateMsg::Ready(zip) => match apply_update(&zip, &self.dir) {
+                        Ok(()) => close = true,
+                        Err(e) => self.update_state = UpdateState::Failed(e),
+                    },
+                }
+            }
+            if close {
+                self.autosave_now();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        // the live view: ask the display program for a picture every second
+        if self.live && self.live_at.map_or(true, |t| t.elapsed() > Duration::from_millis(1000)) {
+            self.live_at = Some(Instant::now());
+            // new content every time: writing the same (empty) bytes does not move the file's
+            // modified time on Windows, and that time is what the display program looks at
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            let _ = std::fs::write(self.dir.join("trofeo-live.request"), stamp.to_string());
+            let png = self.dir.join("trofeo-live.png");
+            let stamp = std::fs::metadata(&png).and_then(|m| m.modified()).ok();
+            if stamp.is_some() && stamp != self.live_stamp {
+                if let Ok(i) = image::open(&png) {
+                    let i = i.to_rgba8();
+                    let img = egui::ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw());
+                    self.live_tex = Some(ctx.load_texture("live", img, egui::TextureOptions::LINEAR));
+                    self.live_stamp = stamp;
+                }
+            }
+        }
         // status in the background: every 1.5 s on the Sensors page, every 4 s elsewhere
         if let Some(rx) = &self.status_rx {
             if let Ok(s) = rx.try_recv() {
@@ -731,12 +1086,22 @@ impl App {
             self.status_rx = Some(rx);
             self.status_at = Some(Instant::now());
         }
-        ctx.request_repaint_after(Duration::from_millis(if self.page == Page::Sensors { 500 } else { 1000 }));
+        ctx.request_repaint_after(Duration::from_millis(if self.page == Page::Sensors || self.live { 500 } else { 1000 }));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[test]
+    fn versions_compare_by_number() {
+        assert_eq!(parse_version("v4.3.0"), Some((4, 3, 0)));
+        assert_eq!(parse_version("4.2"), Some((4, 2, 0)));
+        assert_eq!(parse_version("v4.10.1-beta.2"), Some((4, 10, 1)));
+        assert!(parse_version("v4.10.0") > parse_version("4.9.9"));
+        assert_eq!(parse_version("latest"), None);
+    }
+
     #[test]
     fn base64_matches_the_standard() {
         assert_eq!(super::base64(b"Man"), "TWFu");
@@ -1024,12 +1389,21 @@ impl App {
             }
             ui.add_space(4.0);
             if ui.add_sized([ui.available_width(), 34.0], egui::Button::new(self.t("Restart display", "Khởi động lại màn hình"))).clicked() {
-                run_elevated(RESTART_SCRIPT);
+                self.restart_display();
             }
             ui.add_space(2.0);
             let (color, text) = self.connection();
+            let app_v = env!("CARGO_PKG_VERSION");
+            let disp_v = self.status.get("version").filter(|_| self.status.alive).map(str::to_string);
             egui::Frame::none().fill(CARD).rounding(10.0).inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                // (the side bar is laid out bottom up: the last line comes first)
+                let (vtext, vcol) = match &disp_v {
+                    Some(d) if d != app_v => (format!("{} {d} · {} {app_v}", self.t("Display", "Màn hình"), self.t("app", "app")), WARN),
+                    _ => (format!("Aperture {app_v}"), DIM),
+                };
+                ui.label(RichText::new(vtext).font(font(12.0, Weight::Regular)).color(vcol));
+                ui.add_space(-4.0);
                 status_dot(ui, color, &text);
             });
         });
@@ -1079,12 +1453,64 @@ impl App {
         });
     }
 
+    fn update_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(r) = self.release.clone() else { return };
+        if self.update_hidden {
+            return;
+        }
+        let state = self.update_state.clone();
+        egui::Frame::none().fill(ACCENT_SOFT).stroke(Stroke::new(1.0_f32, ACCENT)).rounding(R).inner_margin(egui::Margin::symmetric(16.0, 12.0)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    let title = format!("{} {}", self.t("New version available:", "Đã có phiên bản mới:"), r.tag);
+                    ui.label(RichText::new(title).font(font(15.0, Weight::Semibold)).color(TEXT));
+                    let sub = match &state {
+                        UpdateState::Downloading(f) => format!("{} {:.0}%", self.t("Downloading…", "Đang tải…"), f * 100.0),
+                        UpdateState::Failed(e) => format!("{} {e}", self.t("Update failed:", "Cập nhật lỗi:")),
+                        _ => r.notes.first().cloned().unwrap_or_else(|| self.t("Your settings are kept. The display restarts by itself.", "Giữ nguyên cài đặt của bạn. Màn hình tự khởi động lại.").to_string()),
+                    };
+                    ui.add_space(-6.0);
+                    ui.label(RichText::new(sub).font(font(13.0, Weight::Regular)).color(if matches!(state, UpdateState::Failed(_)) { BAD } else { MUTED }));
+                });
+                ui.with_layout(ELayout::right_to_left(Align::Center), |ui| {
+                    match state {
+                        UpdateState::Downloading(f) => {
+                            ui.add(egui::ProgressBar::new(f).desired_width(180.0));
+                        }
+                        _ => {
+                            let go = egui::Button::new(RichText::new(self.t("Update now", "Cập nhật ngay")).color(Color32::WHITE)).fill(ACCENT);
+                            if ui.add(go).clicked() {
+                                self.start_update(ui.ctx());
+                            }
+                            if ui.button(self.t("What's new", "Có gì mới")).clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab(&r.page));
+                            }
+                            if ui.button(self.t("Later", "Để sau")).clicked() {
+                                self.update_hidden = true;
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        ui.add_space(10.0);
+    }
+
     fn preview_card(&mut self, ui: &mut egui::Ui) {
         let w = ui.available_width();
         let h = (w * 462.0 / 1920.0).round();
         let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
         ui.painter().rect_filled(rect, Rounding::same(R), Color32::BLACK);
-        if let Some(tex) = &self.preview {
+        let shown = if self.live { self.live_tex.as_ref().filter(|_| self.status.alive) } else { self.preview.as_ref() };
+        if self.live && shown.is_none() {
+            let msg = if !self.status.alive {
+                self.t("The display program is not running", "Chương trình màn hình chưa chạy")
+            } else {
+                self.t("Waiting for the display…", "Đang chờ màn hình…")
+            };
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, font(14.0, Weight::Regular), MUTED);
+        } else if let Some(tex) = shown {
             let ts = tex.size_vec2();
             let s = (rect.width() / ts.x).min(rect.height() / ts.y);
             let r2 = Rect::from_center_size(rect.center(), ts * s);
@@ -1100,13 +1526,22 @@ impl App {
         ui.painter().rect_stroke(rect, Rounding::same(R), Stroke::new(1.0_f32, LINE));
         ui.add_space(-2.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(self.t("Preview with sample data", "Xem trước với dữ liệu mẫu")).font(font(12.5, Weight::Regular)).color(DIM));
+            let caption = if self.live {
+                self.t("Live: exactly what the panel shows now, once a second", "Trực tiếp: đúng hình màn hình đang hiện, mỗi giây một lần")
+            } else {
+                self.t("Preview with sample data", "Xem trước với dữ liệu mẫu")
+            };
+            ui.label(RichText::new(caption).font(font(12.5, Weight::Regular)).color(DIM));
             ui.with_layout(ELayout::right_to_left(Align::Center), |ui| {
-                let cur = if self.preview_music { "m" } else { "i" };
+                let cur = if self.live { "l" } else if self.preview_music { "m" } else { "i" };
                 let lm = self.t("Music playing", "Đang phát nhạc").to_string();
                 let li = self.t("No music", "Không phát nhạc").to_string();
-                if let Some(v) = segmented(ui, cur, &[("i", &li), ("m", &lm)]) {
-                    self.preview_music = v == "m";
+                let ll = self.t("Live display", "Màn hình thật").to_string();
+                if let Some(v) = segmented(ui, cur, &[("i", &li), ("m", &lm), ("l", &ll)]) {
+                    self.set_live(v == "l");
+                    if v != "l" {
+                        self.preview_music = v == "m";
+                    }
                 }
             });
         });
@@ -1143,6 +1578,8 @@ impl App {
             });
         }
         ui.add_space(8.0);
+        self.quick_looks(ui);
+        ui.add_space(4.0);
         // filter chips
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
@@ -1203,6 +1640,47 @@ impl App {
                 }
             }
         });
+    }
+
+    /// One-click combinations of a layout and a palette.
+    fn quick_looks(&mut self, ui: &mut egui::Ui) {
+        let cur_l = self.get_or("pro_layout", "board");
+        let cur_t = self.get_or("pro_theme", "mineral");
+        let n = LOOKS.len();
+        let w = ui.available_width();
+        let cw = ((w - 10.0 * (n as f32 - 1.0)) / n as f32).floor();
+        let mut picked = None;
+        ui.label(RichText::new(self.t("Quick looks", "Phong cách nhanh")).font(font(13.0, Weight::Semibold)).color(MUTED));
+        ui.add_space(-2.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            for (i, (en, vi, layout, theme)) in LOOKS.iter().enumerate() {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(cw, 58.0), Sense::click());
+                let on = cur_l == *layout && cur_t == *theme && !self.bool_of("pro_custom_enabled", false);
+                let th = THEMES.iter().find(|t| t.key == *theme);
+                let bg = th.map_or(CARD, |t| lerp_color(rgb(t.bg), CARD, 0.5));
+                let p = ui.painter();
+                p.rect(rect, Rounding::same(12.0), if resp.hovered() { CARD_HI } else { bg }, Stroke::new(if on { 1.5_f32 } else { 1.0_f32 }, if on { ACCENT } else { LINE }));
+                if let Some(t) = th {
+                    for (j, c) in t.colors.iter().take(2).enumerate() {
+                        p.circle_filled(Pos2::new(rect.left() + 20.0 + j as f32 * 11.0, rect.center().y), 7.0, rgb(*c));
+                    }
+                }
+                let name = if self.lang == Lang::En { *en } else { *vi };
+                let lname = LAYOUTS.iter().find(|l| l.key == *layout).map_or(*layout, |l| l.name);
+                let tname = th.map_or(*theme, |t| t.name);
+                p.text(Pos2::new(rect.left() + 46.0, rect.center().y - 9.0), egui::Align2::LEFT_CENTER, name, font(14.0, Weight::Semibold), TEXT);
+                p.text(Pos2::new(rect.left() + 46.0, rect.center().y + 10.0), egui::Align2::LEFT_CENTER, format!("{lname} · {tname}"), font(12.0, Weight::Regular), MUTED);
+                if resp.clicked() {
+                    picked = Some(i);
+                }
+            }
+        });
+        if let Some(i) = picked {
+            let (_, _, layout, theme) = LOOKS[i];
+            self.use_layout(layout);
+            self.set("pro_theme", theme);
+        }
     }
 
     /// Thumbnail cards; returns the clicked layout.
@@ -1457,8 +1935,7 @@ impl App {
                 ui.label(RichText::new(text).color(TEXT));
                 ui.with_layout(ELayout::right_to_left(Align::Center), |ui| {
                     if ui.button(self.t("Restart display", "Khởi động lại màn hình")).clicked() {
-                        run_elevated(RESTART_SCRIPT);
-                        self.restart_needed = false;
+                        self.restart_display();
                     }
                 });
             });
@@ -1861,6 +2338,54 @@ impl App {
                     }
                 }
             });
+            divider(ui);
+            let lbl = self.t("Diagnostics", "Chẩn đoán").to_string();
+            let help = self.t("Copies the state of the display program and the sensors, to paste in a bug report", "Sao chép trạng thái chương trình và cảm biến, để dán vào báo lỗi").to_string();
+            let mut copy = false;
+            row(ui, &lbl, &help, |ui| copy = ui.button(self.t("Copy", "Sao chép")).clicked());
+            if copy {
+                ui.ctx().copy_text(self.diagnostics());
+                self.note = Some((self.t("Diagnostics copied", "Đã sao chép thông tin chẩn đoán").into(), Instant::now()));
+            }
+        });
+
+        // ---- updates
+        section_title(ui, self.t("Updates", "Cập nhật"), "");
+        card(ui, |ui| {
+            let lbl = format!("Aperture {}", env!("CARGO_PKG_VERSION"));
+            let help = match (&self.update_state, &self.release) {
+                (UpdateState::Checking, _) => self.t("Checking GitHub…", "Đang kiểm tra GitHub…").to_string(),
+                (_, Some(r)) => format!("{} {}", self.t("Available:", "Có bản mới:"), r.tag),
+                (UpdateState::UpToDate, _) => self.t("You have the latest version", "Bạn đang dùng bản mới nhất").to_string(),
+                (UpdateState::Failed(e), _) => format!("{} {e}", self.t("Could not check:", "Không kiểm tra được:")),
+                _ => self.t("Updates come from github.com/HuyBruh/Aperture", "Bản cập nhật lấy từ github.com/HuyBruh/Aperture").to_string(),
+            };
+            let mut check = false;
+            let mut install = false;
+            let has = self.release.is_some();
+            row(ui, &lbl, &help, |ui| {
+                if has {
+                    install = ui.button(self.t("Update now", "Cập nhật ngay")).clicked();
+                } else {
+                    check = ui.button(self.t("Check now", "Kiểm tra ngay")).clicked();
+                }
+            });
+            if check {
+                self.check_updates(ui.ctx());
+            }
+            if install {
+                self.update_hidden = false;
+                self.start_update(ui.ctx());
+            }
+            divider(ui);
+            let mut auto = self.bool_of("update_check", true);
+            let lbl = self.t("Check when Aperture opens", "Kiểm tra khi mở Aperture").to_string();
+            let help = self.t("Only asks GitHub for the latest version; nothing is installed without your click", "Chỉ hỏi GitHub phiên bản mới nhất; không cài gì nếu bạn chưa bấm").to_string();
+            let mut ch = false;
+            row(ui, &lbl, &help, |ui| ch = toggle(ui, &mut auto).changed());
+            if ch {
+                self.set_bool("update_check", auto);
+            }
         });
     }
 }
@@ -1890,6 +2415,14 @@ fn time_edit(ui: &mut egui::Ui, id: &str, minutes: &mut u32) -> bool {
     changed
 }
 
+impl Drop for App {
+    fn drop(&mut self) {
+        if self.live {
+            let _ = std::fs::remove_file(self.dir.join("trofeo-live.request"));
+        }
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.pump(ctx);
@@ -1902,6 +2435,17 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(egui::Frame::none().fill(BG).inner_margin(egui::Margin { left: 30.0, right: 30.0, top: 22.0, bottom: 10.0 })).show(ctx, |ui| {
             self.top(ui);
             ui.add_space(12.0);
+            self.update_banner(ui);
+            if let Some((msg, at)) = self.note.clone() {
+                if at.elapsed() < Duration::from_secs(5) {
+                    egui::Frame::none().fill(CARD_HI).rounding(10.0).inner_margin(egui::Margin::symmetric(14.0, 9.0)).show(ui, |ui| {
+                        status_dot(ui, GOOD, &msg);
+                    });
+                    ui.add_space(8.0);
+                } else {
+                    self.note = None;
+                }
+            }
             if matches!(self.page, Page::Layouts | Page::Colors | Page::Display | Page::Features) {
                 self.preview_card(ui);
                 ui.add_space(4.0);
